@@ -97,7 +97,7 @@ delay, and data acquisition time vs cycle trigger time)
 
 ## Tracy
 
-Tracy is a frame profiler that measures the runtime of annotated functions.
+[Tracy](https://github.com/wolfpld/tracy) is a great frame profiler that measures the runtime of annotated functions.
 To enable tracy, you must build the toolbox with TRACY_ENABLED, e.g., with
 ```
 colcon build --packages-up-to tracking_lib --cmake-args -DTRACY_ENABLE=ON
@@ -110,7 +110,7 @@ To use tracy, launch the profiler and connect to a running aduulm_ttb applicatio
 
 ## Stone Soup bridge
 
-The toolbox includes a [stonesoup_bridge](python/stonesoup_bridge/bridge.py) to the tracking framework stonesoup.
+The toolbox includes a [stonesoup_bridge](python/stonesoup_bridge/bridge.py) to the tracking framework [stonesoup](https://github.com/dstl/Stone-Soup).
 It translates from stonesoup data types to aduulm_ttb types and back.
 Here are a number of [tutorials](python/stonesoup_bridge/tutorials).
 
