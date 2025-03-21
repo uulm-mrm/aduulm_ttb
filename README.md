@@ -33,8 +33,8 @@ For installation, we provide a kind-of minimal Dockerfile.
 
 3. Start the docker:
     ```
-    docker run --rm -i -t -v $(eval echo ~$USER):$(eval echo ~$USER) -v /etc/group:/etc/group:ro -v /etc/passwd:/etc/passwd:ro -v /tmp/.X11-unix:/tmp/.X11-unix:rw -v /tmp:/tmp:rw -v /etc/shadow:/etc/shadow:ro --user $(id -u):$(id -g) -w /home/$(echo $USER) --ipc=host -e DOCKER_MACHINE_NAME="tracking" -e DISPLAY=$(echo $DISPLAY) -e MPLBACKEND=agg --group-add sudo tracking:0 $(echo $SHELL)
-    ```
+    docker run --rm -i -t -v $(eval echo ~$USER):$(eval echo ~$USER) -v /etc/group:/etc/group:ro -v /etc/passwd:/etc/passwd:ro -v /tmp/.X11-unix:/tmp/.X11-unix:rw -v /tmp:/tmp:rw -v /etc/shadow:/etc/shadow:ro --user $(id -u):$(id -g) -w /home/$(echo $USER) --ipc=host -e DOCKER_MACHINE_NAME="tracking" -e LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/usr/local/lib -e DISPLAY=$(echo $DISPLAY) -e MPLBACKEND=agg --privileged --group-add sudo --add-host=localhost:$(ip -4 addr show scope global | grep -m1 inet | awk "{print \$2}" | cut -d / -f 1) --add-host=$(cat /etc/hostname):$(ip -4 addr show scope global | grep -m1 inet | awk "{print \$2}" | cut -d / -f 1) --group-add dialout --ipc=host --device /dev/dri --user 1000:1000 -v ${HOME}/.local/lib/python3.12 tracking:0 $(echo $SHELL)    
+   ```
 
 4. Source ros (this is needed for colcon):
     ```
@@ -70,6 +70,8 @@ For installation, we provide a kind-of minimal Dockerfile.
     ```
     run_simulation.py --tracking_config_path src/tracking/library/tutorials/lmb_fpm.yaml
     ```
+   This runs a simulated scenario with the config in `tutorials/lmb_fpm.yaml`. 
+   In the same folder, there are other configuration for other filters ready to use.  
 
 Enjoy
 
@@ -94,8 +96,12 @@ delay, and data acquisition time vs cycle trigger time)
 ## Tracy
 
 Tracy is a frame profiler that measures the runtime of annotated functions.
-To enable tracy, you must build the toolbox with TRACY_ENABLED.
+To enable tracy, you must build the toolbox with TRACY_ENABLED, e.g., with
+```
+colcon build --packages-up-to tracking_lib --cmake-args -DTRACY_ENABLE=ON
+```
 The visualization server is pre-built in the provided docker and can be launched with `tracy-profiler`.
+To use tracy, launch the profiler and connect to a running aduulm_ttb application.
 
 ![images/tracy_overview.png](images/tracy_overview.png)
 (Tracy profiler)

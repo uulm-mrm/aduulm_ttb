@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>tracking_lib</name>
+  <version>1.4.0</version>
+  <description>tracking</description>
+  <author>Martin Herrmann</author>
+  <author>Thomas Griebel</author>
+  <author>Charlotte Hermann</author>
+  <author>Alexander Scheible</author>
+  <maintainer email="thomas.griebel@uni-ulm.de">Thomas Griebel</maintainer>
+  <maintainer email="charlotte.hermann@uni-ulm.de">Charlotte Hermann</maintainer>
+  <maintainer email="alexander.scheible@uni-ulm.de">Alexander Scheible</maintainer>
+  <license>Proprietary, (c) 2018 Ulm University, Institute of Measurement, Control and Microtechnology</license>
+
+  <!-- dependencies of library -->
+  <build_depend>aduulm_cmake_tools</build_depend>
+  <depend>aduulm_logger_lib</depend>
+  <depend>minimal_latency_buffer</depend>
+
+  <!-- The export tag contains other, unspecified, tags -->
+  <export>
+    <!-- Other tools can request additional information be placed here -->
+    <build_type>cmake</build_type>
+  </export>
+
+</package>

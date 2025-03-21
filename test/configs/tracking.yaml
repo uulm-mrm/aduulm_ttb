@@ -1,0 +1,194 @@
+thread_pool_size: 32
+version: 1.0.0
+
+meas_models:
+  gaussian_models:
+    -
+      id: 0
+      components: [ POS_X, POS_Y, LENGTH, WIDTH, ROT_Z ]
+      can_init: true                       # can give birth to new tracks
+      clutter:
+        intensity: 1e-5
+      detection:
+        prob: 0.8
+        prob_min: 0.01
+        prob_estimation:
+          enable: true
+          use_in_filter: true
+          prior_mean: 0.5
+          prior_var: 0.2
+      occlusion:
+        model: NO_OCCLUSION
+      default_values:
+        - type: [ UNKNOWN, PEDESTRIAN, CAR, TRUCK, BICYCLE ]
+          mean:
+            WIDTH: 1
+            LENGTH: 1
+            HEIGHT: 1
+
+      gating_prob: 0.9
+
+
+
+state:
+  multi_model:
+    use_state_models: [0, 1, 2, 3, 4, 5]
+    birth_weights:    [0.1666666, 0.1666666, 0.1666666, 0.1666666, 0.1666666, 0.1666666]
+    markov_transition:
+      - type: [ CAR_UNION, TRUCK_UNION, BIKE_UNION, PEDESTRIAN, UNKNOWN ]
+        transition_matrix: "1 0 0 0 0 0; 0 1 0 0 0 0; 0 0 1 0 0 0; 0 0 0 1 0 0; 0 0 0 0 1 0; 0 0 0 0 0 1"
+  classification:
+    use_meas_models: [0]
+    classes: [UNKNOWN, PEDESTRIAN, CAR, TRUCK, BICYCLE]
+    use_union_classes: false
+    discount_factor_prediction: 0.98
+  estimation:
+    transform_output_state: false
+    output_state_model: 4
+    type: BEST_STATE_MODEL
+
+
+
+#### StateModels #######################################################################################################
+state_models:
+  -
+    id: 0
+    type: CP
+    extent: NONE
+    model_noise_std_dev:
+      VEL_X: 5
+      VEL_Y: 5
+      VEL_Z: 1
+      WIDTH_CHANGE: 1
+      LENGTH_CHANGE: 1
+      HEIGHT_CHANGE: 1
+  -
+    id: 1
+    type: CTP
+    extent: RECTANGULAR
+    model_noise_std_dev:
+      VEL_X: 0.5
+      VEL_Y: 0.5
+      VEL_Z: 1
+      VEL_ROT_Z: 1
+      WIDTH_CHANGE: 1
+      LENGTH_CHANGE: 1
+      HEIGHT_CHANGE: 1
+  -
+    id: 2
+    type: CV
+    extent: RECTANGULAR
+    model_noise_std_dev:
+      ACC_X: 2
+      ACC_Y: 2
+      VEL_Z: 0.001
+      WIDTH_CHANGE: 0.001
+      LENGTH_CHANGE: 0.001
+      HEIGHT_CHANGE: 0.001
+  -
+    id: 3
+    type: CA
+    extent: RECTANGULAR
+    model_noise_std_dev:
+      JERK_X: 1
+      JERK_Y: 1
+      VEL_Z: 1
+      WIDTH_CHANGE: 1
+      LENGTH_CHANGE: 1
+      HEIGHT_CHANGE: 1
+  -
+    id: 4
+    type: CTRV
+    extent: RECTANGULAR
+    model_noise_std_dev:
+      VEL_Z: 0.1
+      ACC_ABS: 5
+      ACC_ROT_Z: 0.5
+      WIDTH_CHANGE: 0.3
+      LENGTH_CHANGE: 0.3
+      HEIGHT_CHANGE: 0.3
+    default_mean:
+      VEL_ABS: 0
+      VEL_ROT_Z: 0
+    default_var:
+      VEL_ABS: 1
+      VEL_ROT_Z: 1
+  -
+    id: 5
+    type: CTRA
+    extent: RECTANGULAR
+    model_noise_std_dev:
+      VEL_Z: 0.1
+      JERK_ABS: 0.01
+      ACC_ROT_Z: 0.001
+      WIDTH_CHANGE: 0.05
+      LENGTH_CHANGE: 0.05
+      HEIGHT_CHANGE: 0.05
+
+birth_model:
+  type: DYNAMIC
+  allow_overlapping: false
+  min_mhd_4_overlapping_wo_extent: 1
+  default_birth_existence_prob: 0.1
+  dynamic_model:
+    mean_num_birth: 2.
+    birth_threshold: 0.1
+
+persistence_model:
+  type: CONSTANT
+  constant:
+    persistence_prob: 0.99
+
+lmb_distribution:
+  post_process_prediction:
+    enable: false
+    max_tracks: 1000000          # only keep max_tracks
+    pruning_threshold: 0   # only keep tracks with existence probability higher of
+    max_last_assoc_duration_ms: 50   # remove all tracks, with greater last associated measurement durationn
+  post_process_update:
+    enable: false
+    max_tracks: 100000
+    pruning_threshold: 0
+  extraction:
+    type: EXISTENCE_PROBABILITY  #Cardinality
+    threshold: 0.1
+
+glmb_distribution:
+  do_profiling: false
+  post_process_prediction:
+    enable: false
+    pruning_threshold: 1e-5
+    max_hypotheses: 300
+  post_process_update:
+    enable: false
+    pruning_threshold: 1e-5
+    max_hypotheses: 300
+  update:
+    joint_prediction_and_update: true
+    assignment_method: GIBBS_SAMPLING
+    max_total_number_update_hypotheses: 500      #
+    num_update_hypotheses:
+      equal_allocation_share_ratio: 1
+      max_update_hypotheses: 5
+    gibbs_sampling:
+      max_trials_factor: 3
+  extraction:
+    type: CARDINALITY #Best Hypothesis #Existence Probability  # Cardinality
+    threshold: 0.3
+  lmb_2_glmb_conversion:
+    type: ALL  # K_BEST  # ALL
+    all:
+      num_track_limit: 10
+      fallback_type: SAMPLING
+    kBest:
+      max_number_hypotheses: 2000
+    sampling:
+      max_number_hypotheses: 2000             # Max Number of created Hypotheses
+      percentage_of_weight_hypotheses: 0.9    # Percentage of all possible Hypotheses weights (of 1)
+      max_num_tries: 10000
+
+
+#### Filter ############################################################################################################
+filter:
+  type: LMB_IC
+  enable: true

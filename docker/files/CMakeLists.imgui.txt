@@ -1,0 +1,84 @@
+cmake_minimum_required(VERSION 3.20)
+project(imgui)
+
+include(GNUInstallDirs)
+
+set(CMAKE_DEBUG_POSTFIX d)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED)
+
+# Note: imgui is built with the freetype font rasterizer
+find_package(glfw3 REQUIRED)
+find_package(OpenGL REQUIRED)
+find_package(Freetype REQUIRED)
+
+add_library(imgui STATIC
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/imgui.h
+	${CMAKE_CURRENT_SOURCE_DIR}/imstb_rectpack.h
+	${CMAKE_CURRENT_SOURCE_DIR}/imstb_textedit.h
+	${CMAKE_CURRENT_SOURCE_DIR}/imstb_truetype.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/imgui_demo.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/imgui_draw.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/imgui_internal.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/imgui_tables.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/imgui_widgets.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/misc/freetype/imgui_freetype.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/misc/freetype/imgui_freetype.cpp
+)
+set_property(TARGET imgui PROPERTY POSITION_INDEPENDENT_CODE ON)
+target_include_directories(imgui PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+    $<INSTALL_INTERFACE:include/imgui>)
+target_include_directories(imgui SYSTEM PUBLIC ${FREETYPE_INCLUDE_DIRS})
+target_compile_definitions(imgui PRIVATE IMGUI_ENABLE_FREETYPE)
+target_link_libraries(imgui ${FREETYPE_LIBRARIES})
+	
+set(INSTALL_TARGETS imgui)
+# Note: exposing internal headers of imgui is unfortunately necessary for the full docking functionality
+set(INSTALL_HEADERS ${CMAKE_CURRENT_SOURCE_DIR}/imgui.h ${CMAKE_CURRENT_SOURCE_DIR}/imconfig.h ${CMAKE_CURRENT_SOURCE_DIR}/imgui_internal.h
+                    ${CMAKE_CURRENT_SOURCE_DIR}/imstb_textedit.h ${CMAKE_CURRENT_SOURCE_DIR}/imstb_rectpack.h ${CMAKE_CURRENT_SOURCE_DIR}/imstb_truetype.h)
+
+foreach(BACKEND glfw opengl3)
+	set(NAME imgui_impl_${BACKEND})
+	set(HEADER ${CMAKE_CURRENT_SOURCE_DIR}/backends/${NAME}.h)
+	add_library(${NAME} STATIC ${CMAKE_CURRENT_SOURCE_DIR}/backends/${NAME}.cpp ${HEADER})
+	set_property(TARGET imgui_impl_${BACKEND} PROPERTY POSITION_INDEPENDENT_CODE ON)
+	target_link_libraries(${NAME} PUBLIC imgui)
+	target_include_directories(${NAME} PUBLIC
+	    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/backends>
+	    $<INSTALL_INTERFACE:include>)
+	LIST(APPEND INSTALL_TARGETS ${NAME})
+	LIST(APPEND INSTALL_HEADERS ${HEADER})
+endforeach()
+
+target_link_libraries(imgui_impl_glfw PUBLIC glfw)
+target_sources(imgui_impl_opengl3 PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/backends/imgui_impl_opengl3_loader.h>)
+target_link_libraries(imgui_impl_opengl3 PUBLIC OpenGL::GL)
+
+set(IMGUI_CMAKE_CONFIG_DIR ${CMAKE_INSTALL_DATADIR}/imgui/cmake)
+include(CMakePackageConfigHelpers)
+configure_package_config_file(
+    imgui.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/imguiConfig.cmake
+    INSTALL_DESTINATION ${IMGUI_CMAKE_CONFIG_DIR}
+)
+
+install(TARGETS ${INSTALL_TARGETS}
+    EXPORT imgui-targets DESTINATION ${CMAKE_INSTALL_LIBDIR})
+install(EXPORT imgui-targets
+    FILE imguiTargets.cmake
+    NAMESPACE imgui::
+    DESTINATION ${IMGUI_CMAKE_CONFIG_DIR})
+install(FILES ${INSTALL_HEADERS}
+    DESTINATION include/imgui)
+install(
+    FILES ${CMAKE_CURRENT_BINARY_DIR}/imguiConfig.cmake
+    DESTINATION ${IMGUI_CMAKE_CONFIG_DIR}
+)
+
+add_executable(example_glfw_opengl3 ${CMAKE_CURRENT_SOURCE_DIR}/examples/example_glfw_opengl3/main.cpp)
+target_link_libraries(example_glfw_opengl3
+	PRIVATE imgui imgui_impl_glfw imgui_impl_opengl3 glfw
+)
+

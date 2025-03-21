@@ -1,0 +1,125 @@
+thread_pool_size: 32
+version: 1.0.0
+
+meas_models:
+  gaussian_models:
+    -
+      id: 0
+      components: [ POS_X, POS_Y ]
+      can_init: true                       # can give birth to new tracks
+      clutter:
+        intensity: 1e-5
+      detection:
+        prob: 0.8
+        prob_min: 0.01
+        prob_estimation:
+          enable: true
+          use_in_filter: true
+          prior_mean: 0.5
+          prior_var: 0.2
+      occlusion:
+        model: NO_OCCLUSION
+      default_values:
+        - type: [ UNKNOWN, PEDESTRIAN, CAR, TRUCK, BICYCLE ]
+          mean:
+            WIDTH: 1
+            LENGTH: 1
+            HEIGHT: 1
+      gating_prob: 1
+    -
+      id: 1
+      components: [ X_CC_LOWER_LEFT, X_CC_UPPER_RIGHT ]
+      can_init: false
+      clutter:
+        intensity: 1e-5
+      detection:
+        prob: 0.8
+        prob_min: 0.01
+        prob_estimation:
+          enable: true
+          use_in_filter: true
+          prior_mean: 0.5
+          prior_var: 0.2
+      occlusion:
+        model: NO_OCCLUSION
+      default_values:
+        - type: [ UNKNOWN, PEDESTRIAN, CAR, TRUCK, BICYCLE ]
+          mean:
+            WIDTH: 1
+            LENGTH: 1
+            HEIGHT: 1
+      gating_prob: 1
+
+
+
+state:
+  multi_model:
+    use_state_models: [0]
+    birth_weights:    [1]
+    markov_transition:
+      - type: [ CAR_UNION, TRUCK_UNION, BIKE_UNION, PEDESTRIAN, UNKNOWN ]
+        transition_matrix: "1 0 0 0 0 0; 0 1 0 0 0 0; 0 0 1 0 0 0; 0 0 0 1 0 0; 0 0 0 0 1 0; 0 0 0 0 0 1"
+  classification:
+    use_meas_models: [0]
+    classes: [UNKNOWN, PEDESTRIAN, CAR, TRUCK, BICYCLE]
+    use_union_classes: false
+    discount_factor_prediction: 0.98
+  estimation:
+    transform_output_state: false
+    output_state_model: 4
+    type: BEST_STATE_MODEL
+
+
+
+#### StateModels #######################################################################################################
+state_models:
+  - id: 0
+    type: CTRV
+    extent: RECTANGULAR
+    distribution:
+      type: GAUSSIAN
+      mixture: false
+      extraction_type: BEST_COMPONENT
+      post_process:
+        enable: true
+        max_components: 10
+        merging_distance: 1
+        min_weight: 0.001
+        max_variance: 100
+    model_noise_std_dev:
+      VEL_Z: 0.1
+      ACC_ABS: 5
+      ACC_ROT_Z: 0.5
+      WIDTH_CHANGE: 0.3
+      LENGTH_CHANGE: 0.3
+      HEIGHT_CHANGE: 0.3
+    default_mean:
+      ROT_Z: 0
+      VEL_ABS: 0
+      VEL_ROT_Z: 0
+      LENGTH: 4
+      WIDTH: 2
+      HEIGHT: 1.5
+    default_var:
+      ROT_Z: 1
+      VEL_ABS: 1
+      VEL_ROT_Z: 1
+      LENGTH: 1
+      WIDTH: 1
+      HEIGHT: 1
+
+birth_model:
+  type: DYNAMIC
+  allow_overlapping: false
+  min_mhd_4_overlapping_wo_extent: 1
+  default_birth_existence_prob: 0.1
+  dynamic_model:
+    mean_num_birth: 2.
+    birth_threshold: 0.1
+
+
+
+#### Filter ############################################################################################################
+filter:
+  type: LMB_IC
+  enable: true

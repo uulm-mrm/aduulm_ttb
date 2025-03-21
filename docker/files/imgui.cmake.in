@@ -1,0 +1,11 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(glfw3)
+find_dependency(OpenGL)
+find_dependency(Freetype)
+
+include("${CMAKE_CURRENT_LIST_DIR}/imguiTargets.cmake")
+
+check_required_components(imgui)
+

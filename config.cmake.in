@@ -1,0 +1,27 @@
+set(@PROJECT_NAME@_VERSION "@PACKAGE_LIBRARY_VERSION@")
+@PACKAGE_INIT@
+set_and_check(@PROJECT_NAME@_INCLUDE_DIRS "@PACKAGE_INCLUDE_INSTALL_DIR@")
+#Comment the following line if you have a header-only library (INTERFACE library)
+set_and_check(@PROJECT_NAME@_LIB_DIR "@PACKAGE_LIB_INSTALL_DIR@")
+#Uncomment the following line if your library installs binaries
+#set_and_check(@PROJECT_NAME@_BIN_DIR "@PACKAGE_BIN_INSTALL_DIR@")
+set(@PROJECT_NAME@_LIBRARIES -L@PACKAGE_LIB_INSTALL_DIR@ @PROJECT_NAME@::@PROJECT_NAME@)
+check_required_components(@PROJECT_NAME@)
+
+find_package(aduulm_cmake_tools REQUIRED)
+find_package(Eigen3 REQUIRED)
+find_package(figcone REQUIRED)
+find_package(Boost)
+find_package(TBB REQUIRED COMPONENTS tbb)
+find_dependency(OpenGL)
+find_dependency(implot)
+find_dependency(imgui)
+find_dependency(Tracy)
+find_package(aduulm_logger_lib REQUIRED)
+find_package(minimal_latency_buffer REQUIRED)
+
+if(IS_ROS)
+#Include exported targets
+get_filename_component(SELF_DIR "${CMAKE_CURRENT_LIST_FILE}" PATH)
+include(${SELF_DIR}/@PROJECT_NAME@Targets.cmake)
+endif()

@@ -1,0 +1,35 @@
+cmake_minimum_required(VERSION 3.20)
+project(implot)
+
+set(CMAKE_DEBUG_POSTFIX d)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED)
+
+include(GNUInstallDirs)
+
+find_package(imgui REQUIRED)
+
+add_library(implot STATIC
+	${CMAKE_CURRENT_SOURCE_DIR}/implot.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/implot_items.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/implot_demo.cpp
+)
+set_property(TARGET implot PROPERTY POSITION_INDEPENDENT_CODE ON)
+target_include_directories(implot PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+    $<INSTALL_INTERFACE:include/implot>)
+	
+set(INSTALL_TARGETS implot)
+set(INSTALL_HEADERS ${CMAKE_CURRENT_SOURCE_DIR}/implot.h)
+
+target_link_libraries(implot PUBLIC imgui::imgui)
+
+install(TARGETS implot
+    EXPORT implot-targets DESTINATION ${CMAKE_INSTALL_LIBDIR})
+install(EXPORT implot-targets
+    FILE implot-config.cmake
+    NAMESPACE implot::
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/implot/cmake)
+install(FILES ${INSTALL_HEADERS}
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/implot)
+

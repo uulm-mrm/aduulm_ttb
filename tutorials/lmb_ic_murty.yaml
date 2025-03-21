@@ -1,0 +1,212 @@
+thread_pool_size: 10
+version: 1.0.0
+
+
+meas_models:
+  gaussian_models:
+    -
+      id: sim0
+      components: [ POS_X, POS_Y, LENGTH, WIDTH, ROT_Z ]
+      can_init: true
+      gating_prob: 0.99999
+      fix_orientation:
+        enable: true
+        weights: [ 0.8, 0.2 ]
+      clutter:
+        rate: 7
+        rate_estimation:
+          enable: true
+          use_in_filter: false
+      detection:
+        prob: 0.8
+        prob_min: 0.01
+        prob_estimation:
+          enable: true
+          use_in_filter: false
+      occlusion:
+        model: NO_OCCLUSION
+      default_values:
+        - mean:
+            WIDTH: 1
+            LENGTH: 1
+            HEIGHT: 1
+          var:
+            POS_X: 2
+            POS_Y: 2
+            POS_Z: 0.5
+            ROT_Z: 0.1
+            VEL_ROT_Z: 0.3
+    - id: sim1
+      components: [ POS_X, POS_Y, LENGTH, WIDTH, ROT_Z ]
+      can_init: true
+      gating_prob: 0.99999
+      fix_orientation:
+        enable: true
+        weights: [ 0.8, 0.2 ]
+      clutter:
+        rate: 7
+        rate_estimation:
+          enable: true
+          use_in_filter: false
+      detection:
+        prob: 0.8
+        prob_min: 0.01
+        prob_estimation:
+          enable: true
+          use_in_filter: false
+      occlusion:
+        model: NO_OCCLUSION
+      default_values:
+        - mean:
+            WIDTH: 1
+            LENGTH: 1
+            HEIGHT: 1
+          var:
+            POS_X: 2
+            POS_Y: 2
+            POS_Z: 0.5
+            ROT_Z: 0.1
+            VEL_ROT_Z: 0.3
+
+
+
+
+#### StateDistributions
+state:
+  multi_model:
+    use_state_models: [4, 1, 2, 0]
+    birth_weights:    [0.25, 0.25, 0.25, 0.25]
+  classification:
+    use_meas_models:
+      - sim0
+    classes: [UNKNOWN, PEDESTRIAN, CAR_UNION, TRUCK_UNION, BIKE_UNION]
+    use_union_classes: true
+    discount_factor_prediction: 0.98
+  estimation:
+    type: BEST_STATE_MODEL
+    transform_output_state: false
+    output_state_model: CTRV
+
+
+state_models:
+  -
+    id: 0
+    type: CP
+    extent: NONE
+    model_noise_std_dev:
+      VEL_X: 5
+      VEL_Y: 5
+      VEL_Z: 1
+      WIDTH_CHANGE: 1
+      LENGTH_CHANGE: 1
+      HEIGHT_CHANGE: 1
+  -
+    id: 1
+    type: CTP
+    extent: RECTANGULAR
+    model_noise_std_dev:
+      VEL_X: 1
+      VEL_Y: 1
+      VEL_Z: 1
+      VEL_ROT_Z: 1
+      WIDTH_CHANGE: 1
+      LENGTH_CHANGE: 1
+      HEIGHT_CHANGE: 1
+  -
+    id: 2
+    type: CV
+    extent: NONE
+    model_noise_std_dev:
+      ACC_X: 1
+      ACC_Y: 1
+      VEL_Z: 0.001
+      WIDTH_CHANGE: 0.001
+      LENGTH_CHANGE: 0.001
+      HEIGHT_CHANGE: 0.001
+  -
+    id: 4
+    type: CTRV
+    extent: RECTANGULAR
+    model_noise_std_dev:
+      VEL_Z: 0.1
+      ACC_ABS: 5
+      ACC_ROT_Z: 0.5
+      WIDTH_CHANGE: 0.3
+      LENGTH_CHANGE: 0.3
+      HEIGHT_CHANGE: 0.3
+    default_mean:
+      VEL_ABS: 0
+      VEL_ROT_Z: 0
+    default_var:
+      VEL_ABS: 1
+      VEL_ROT_Z: 1
+
+
+birth_model:
+  type: DYNAMIC
+  allow_overlapping: true
+  min_mhd_4_overlapping_wo_extent: 1
+  default_birth_existence_prob: 0.1
+  dynamic_model:
+    mean_num_birth: 2.
+    birth_threshold: 0.1
+    force_one_step_birth: true
+
+
+
+
+#### MO State Dist #####################################################################################################
+# LMB --------------
+lmb_distribution:
+  update_method: GLMB
+  use_grouping: true
+  post_process_prediction:
+    enable: true
+    max_tracks: 1000          # only keep max_tracks
+    pruning_threshold: 1e-2   # only keep tracks with existence probability higher of
+    max_last_assoc_duration_ms: 1200   # remove all tracks, with greater last associated measurement durationn
+  post_process_update:
+    enable: true
+    max_tracks: 1000000000
+    pruning_threshold: 1e-2
+  extraction:
+    type: EXISTENCE_PROBABILITY
+    threshold: 0.5
+
+glmb_distribution:
+  do_profiling: false
+  post_process_prediction:
+    enable: false
+  post_process_update:
+    enable: false
+  update:
+    joint_prediction_and_update: false
+    assignment_method: MURTY
+    max_total_number_update_hypotheses: 1000      #
+    num_update_hypotheses:
+      equal_allocation_share_ratio: 1
+      max_update_hypotheses: 5
+    gibbs_sampling:
+      max_trials_factor: 5
+      abort_after_ntimes_no_new_sol: 100
+  extraction:
+    type: CARDINALITY #Best Hypothesis #Existence Probability  # Cardinality
+    threshold: 0.3
+  lmb_2_glmb_conversion:
+    type: ALL  # K_BEST  # ALL
+    all:
+      num_track_limit: 5
+      fallback_type: K_BEST
+    sampling:
+      max_number_hypotheses: 1000             # Max Number of created Hypotheses
+      percentage_of_weight_hypotheses: 0.9    # Percentage of all possible Hypotheses weights (of 1)
+      max_num_tries: 10000
+    kBest:
+      max_number_hypotheses: 500
+
+
+
+#### Filter ############################################################################################################
+filter:
+  type: LMB_IC
+  enable: true

@@ -1,0 +1,448 @@
+start_time: 1000000000000
+time_step: 100 # ms
+reset_time_increment: 100000 #ms
+run_mode: fast #fast #real_time
+max_simulated_cars: 10
+max_remote_controlled_cars: 0
+random_seed: 0
+reset_when_done: True
+num_runs: 5
+error_after: -1
+wait_for_nodes:
+  gt2file: 'gt2file'
+  mec_fusion_ttb2file: 'mec_fusion_ttb2file'
+
+tracker_configs:
+  tracker_base: &tracker_base
+    id: NULL
+
+trackers:
+  - <<: *tracker_base
+    name: "tracker_sim0"
+  - <<: *tracker_base
+    name: "tracker_sim1"
+  - <<: *tracker_base
+    name: tracker_mec_fusion_FC
+
+car_configs:
+  car1: &car1
+    width: 5.50
+    length: 1.50
+    height: 3
+    object_class: "CAR"
+    min_velocity: -10
+    max_velocity: 10
+    min_acceleration: -4
+    max_acceleration: 2
+  car2: &car2
+    width: 5.0
+    length: 2.50
+    height: 3
+    object_class: "CAR"
+    min_velocity: -10
+    max_velocity: 7.21
+    min_acceleration: -4
+    max_acceleration: 2
+  car3: &car3
+    width: 2.50
+    length: 1.00
+    height: 3
+    object_class: "CAR"
+    min_velocity: -10
+    max_velocity: 7.81
+    min_acceleration: -4
+    max_acceleration: 2
+  car4: &car4
+    width: 1.00
+    length: 2.50
+    height: 3
+    object_class: "CAR"
+    min_velocity: -10
+    max_velocity: 6.70 #6.71
+    min_acceleration: -4
+    max_acceleration: 2
+  car5: &car5
+    width: 2.50
+    length: 1.50
+    height: 7
+    object_class: "CAR"
+    min_velocity: -10
+    max_velocity: 9
+    min_acceleration: -4
+    max_acceleration: 2
+  car6: &car6
+    width: 1.50
+    length: 2.50
+    height: 5
+    object_class: "CAR"
+    min_velocity: -10
+    max_velocity: 12.1
+    min_acceleration: -4
+    max_acceleration: 2
+  car7: &car7
+    width: 2.50
+    length: 3.00
+    height: 4
+    object_class: "CAR"
+    min_velocity: -10
+    max_velocity: 9.43
+    min_acceleration: -4
+    max_acceleration: 2
+  car8: &car8
+    width: 3.00
+    length: 2.50
+    height: 3
+    object_class: "CAR"
+    min_velocity: -10
+    max_velocity: 13.89
+    min_acceleration: -4
+    max_acceleration: 2
+  car9: &car9
+    width: 1.00
+    length: 2.50
+    height: 1
+    object_class: "CAR"
+    min_velocity: -10
+    max_velocity: 12.16 #12.17
+    min_acceleration: -4
+    max_acceleration: 2
+  car10: &car10
+    width: 2.50
+    length: 1.00
+    height: 1
+    object_class: "CAR"
+    min_velocity: -10
+    max_velocity: 13.45
+    min_acceleration: -4
+    max_acceleration: 2
+
+sensor_configs:
+  intersection_camera: &intersection_camera
+    type: detector
+    active: True
+    platform_id: "mec_fusion"
+    period: 100
+    noise: [1, 1]
+    state_description: ["X", "Y"]
+    classification:
+      enabled: True
+      understood_types: ["CAR", "UNKNOWN"]
+      error_probability: 0.000000005
+      classification_confidence: 0.8
+    reference_points:
+      strategy: "GEOMETRIC_CENTER"
+      restrict_to: NULL
+    measurement_delay: 0
+    sensor_model:
+      type: covered_area
+      clutter_rate: 100
+      detection_rate: 0.9
+
+static:
+  mec_fusion:
+    platform_id: mec_fusion
+    sensors:
+      - <<: *intersection_camera
+        device_id: "sim0"
+        frame_id: "mec_fusion-sim0"
+        trackers: ["tracker_sim0"]
+        id: 0
+
+
+signalized_intersections: []
+
+target_zones:
+  sim_end_zone1: &endZone1
+    lanelet_id: 2896
+    distance_on_lanelet: 0
+  sim_end_zone2: &endZone2
+    lanelet_id: 5054
+    distance_on_lanelet: 0
+#  sim_end_zone3: &endZone3
+#    lanelet_id: 3
+#    distance_on_lanelet: 546.7
+#  sim_end_zone4: &endZone4
+#    lanelet_id: 4
+#    distance_on_lanelet: 268.4
+#  sim_end_zone5: &endZone5
+#    lanelet_id: 5
+#    distance_on_lanelet: 450.0
+#  sim_end_zone6: &endZone6
+#    lanelet_id: 6
+#    distance_on_lanelet: 847.0
+#  sim_end_zone7: &endZone7
+#    lanelet_id: 7
+#    distance_on_lanelet: 565.8
+#  sim_end_zone8: &endZone8
+#    lanelet_id: 8
+#    distance_on_lanelet: 555.6
+#  sim_end_zone9: &endZone9
+#    lanelet_id: 9
+#    distance_on_lanelet: 486.8
+#  sim_end_zone10: &endZone10
+#    lanelet_id: 10
+#    distance_on_lanelet: 403.5
+
+spawn_zones: #single death
+  - lanelet_ids: [1086]
+    max_simultaneous_cars: 1
+    ids: [1]
+    total_cars_to_spawn: 1
+    spawn_not_before: 0
+    spawn_probability: 1.0
+    distance_on_lanelet: 0
+    angle: 0.0 #9273
+    lateral_offset: 0.0
+    velocity: 5.0
+    acceleration: 0
+    type:
+      - value: simulated
+        probability: 1.0
+    config:
+      - value: *car1
+        probability: 1.0
+    simulation_type:
+      - value: IDM
+        probability: 0.5
+    decisions: []
+    target_zones:
+      - *endZone1
+    scenario_ends_on_zone_reached: False
+    maximum_sim_time: 10000000000000
+
+  - lanelet_ids: [2934]
+    max_simultaneous_cars: 1
+    ids: [2]
+    total_cars_to_spawn: 1
+    spawn_not_before: 10000
+    spawn_probability: 1.0
+    distance_on_lanelet: 0
+    angle: 0.0 #0.98
+    lateral_offset: 0.0
+    velocity: 7.21
+    acceleration: 0
+    type:
+      - value: simulated
+        probability: 1.0
+    config:
+      - value: *car2
+        probability: 1.0
+    simulation_type:
+      - value: IDM
+        probability: 0.5
+    decisions: []
+    target_zones:
+      - *endZone2
+    scenario_ends_on_zone_reached: False
+    maximum_sim_time: 7000000000
+#
+#  - lanelet_ids: [3]
+#    max_simultaneous_cars: 1
+#    ids: [3]
+#    total_cars_to_spawn: 1
+#    spawn_not_before: 10000
+#    spawn_probability: 1.0
+#    distance_on_lanelet: 0
+#    angle: 0.0 #-0.88
+#    lateral_offset: 0.0
+#    velocity: 7.81
+#    acceleration: 0
+#    type:
+#      - value: simulated
+#        probability: 1.0
+#    config:
+#      - value: *car3
+#        probability: 1.0
+#    simulation_type:
+#      - value: IDM
+#        probability: 0.5
+#    decisions: []
+#    target_zones:
+#      - *endZone3
+#    scenario_ends_on_zone_reached: False
+#    maximum_sim_time: 75000
+#
+#  - lanelet_ids: [4]
+#    max_simultaneous_cars: 1
+#    ids: [4]
+#    total_cars_to_spawn: 1
+#    spawn_not_before: 20000
+#    spawn_probability: 1.0
+#    distance_on_lanelet: 0
+#    angle: 0.0 #-0.46
+#    lateral_offset: 0.0
+#    velocity: 6.71
+#    acceleration: 0
+#    type:
+#      - value: simulated
+#        probability: 1.0
+#    config:
+#      - value: *car4
+#        probability: 1.0
+#    simulation_type:
+#      - value: IDM
+#        probability: 0.5
+#    decisions: []
+#    target_zones:
+#      - *endZone4
+#    scenario_ends_on_zone_reached: False
+#    maximum_sim_time: 40000
+#
+#  - lanelet_ids: [5]
+#    max_simultaneous_cars: 1
+#    ids: [5]
+#    total_cars_to_spawn: 1
+#    spawn_not_before: 50000
+#    spawn_probability: 1.0
+#    distance_on_lanelet: 0
+#    angle: 0.0
+#    lateral_offset: 0.0
+#    velocity: 9.0
+#    acceleration: 0
+#    type:
+#      - value: simulated
+#        probability: 1.0
+#    config:
+#      - value: *car5
+#        probability: 1.0
+#    simulation_type:
+#      - value: IDM
+#        probability: 0.5
+#    decisions: []
+#    target_zones:
+#      - *endZone5
+#    scenario_ends_on_zone_reached: False
+#    maximum_sim_time: 50000
+#
+#  - lanelet_ids: [6]
+#    max_simultaneous_cars: 1
+#    ids: [6]
+#    total_cars_to_spawn: 1
+#    spawn_not_before: 0
+#    spawn_probability: 1.0
+#    distance_on_lanelet: 0
+#    angle: 0.0 #3.02
+#    lateral_offset: 0.0
+#    velocity: 12.1
+#    acceleration: 0
+#    type:
+#      - value: simulated
+#        probability: 1.0
+#    config:
+#      - value: *car6
+#        probability: 1.0
+#    simulation_type:
+#      - value: IDM
+#        probability: 0.5
+#    decisions: []
+#    target_zones:
+#      - *endZone6
+#    scenario_ends_on_zone_reached: False
+#    maximum_sim_time: 70000
+#
+#  - lanelet_ids: [7]
+#    max_simultaneous_cars: 1
+#    ids: [7]
+#    total_cars_to_spawn: 1
+#    spawn_not_before: 40000
+#    spawn_probability: 1.0
+#    distance_on_lanelet: 0
+#    angle: 0.0 #0.56
+#    lateral_offset: 0.0
+#    velocity: 9.43
+#    acceleration: 0
+#    type:
+#      - value: simulated
+#        probability: 1.0
+#    config:
+#      - value: *car7
+#        probability: 1.0
+#    simulation_type:
+#      - value: IDM
+#        probability: 0.5
+#    decisions: []
+#    target_zones:
+#      - *endZone7
+#    scenario_ends_on_zone_reached: False
+#    maximum_sim_time: 60000
+#
+#  - lanelet_ids: [8]
+#    max_simultaneous_cars: 1
+#    ids: [8]
+#    total_cars_to_spawn: 1
+#    spawn_not_before: 50000
+#    spawn_probability: 1.0
+#    distance_on_lanelet: 0
+#    angle: 0.0 #-0.53
+#    lateral_offset: 0.0
+#    velocity: 13.89
+#    acceleration: 0
+#    type:
+#      - value: simulated
+#        probability: 1.0
+#    config:
+#      - value: *car8
+#        probability: 1.0
+#    simulation_type:
+#      - value: IDM
+#        probability: 0.5
+#    decisions: []
+#    target_zones:
+#      - *endZone8
+#    scenario_ends_on_zone_reached: False
+#    maximum_sim_time: 40000
+#
+#  - lanelet_ids: [9]
+#    max_simultaneous_cars: 1
+#    ids: [9]
+#    total_cars_to_spawn: 1
+#    spawn_not_before: 30000
+#    spawn_probability: 1.0
+#    distance_on_lanelet: 0
+#    angle: 0.0 #-0.17
+#    lateral_offset: 0.0
+#    velocity: 12.17
+#    acceleration: 0
+#    type:
+#      - value: simulated
+#        probability: 1.0
+#    config:
+#      - value: *car9
+#        probability: 1.0
+#    simulation_type:
+#      - value: IDM
+#        probability: 0.5
+#    decisions: []
+#    target_zones:
+#      - *endZone9
+#    scenario_ends_on_zone_reached: False
+#    maximum_sim_time: 45000
+#
+#  - lanelet_ids: [10]
+#    max_simultaneous_cars: 1
+#    ids: [10]
+#    total_cars_to_spawn: 1
+#    spawn_not_before: 30000
+#    spawn_probability: 1.0
+#    distance_on_lanelet: 0
+#    angle: 0.0 #2.41
+#    lateral_offset: 0.0
+#    velocity: 13.45
+#    acceleration: 0
+#    type:
+#      - value: simulated
+#        probability: 1.0
+#    config:
+#      - value: *car10
+#        probability: 1.0
+#    simulation_type:
+#      - value: IDM
+#        probability: 0.5
+#    decisions: []
+#    target_zones:
+#      - *endZone10
+#    scenario_ends_on_zone_reached: False
+#    maximum_sim_time: 35000
+
+simulated_cars: []
+remote_controlled_cars: []

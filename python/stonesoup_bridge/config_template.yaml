@@ -1,0 +1,260 @@
+thread_pool_size: 20
+show_gui: true
+version: 1.0.0
+
+##### Measurement Models ###############################################################################################
+meas_models:
+  gaussian_models:
+###EXTRACT_START###
+    -
+      id: <ID_SIM0>
+      components: [ POS_X, POS_Y, VEL_X, VEL_Y, LENGTH, WIDTH, ROT_Z ]
+      can_init: true
+      gating_prob: 0.99999
+      clutter:
+        rate: <SIM0_CLUTTER_RATE>
+        rate_estimation:
+          enable: true
+          use_in_filter: false
+      detection:
+        prob: <SIM0_DETECTION_PROB>
+        prob_min: 0.01
+        prob_estimation:
+          enable: true
+          use_in_filter: false
+          prior_var: 0.0001
+      occlusion:
+        model: NO_OCCLUSION
+      default_values:
+        - mean:
+            WIDTH: 1
+            LENGTH: 1
+            HEIGHT: 1
+          var:
+            POS_X: 2
+            POS_Y: 2
+            POS_Z: 0.5
+            ROT_Z: 0.1
+            VEL_ROT_Z: 0.3
+###EXTRACT_STOP###
+
+
+#### StateDistributions
+state:
+  multi_model:
+    use_state_models: [<USE_STATE_MODELS>]
+    birth_weights:    [1]
+  classification:
+    use_meas_models: # list sensor models
+      <USE_MEAS_MODELS>
+    classes: [UNKNOWN, PEDESTRIAN, CAR_UNION, TRUCK_UNION, BIKE_UNION]
+    use_union_classes: true
+    discount_factor_prediction: 0.98
+  estimation:
+    type: BEST_STATE_MODEL
+    transform_output_state: false
+    output_state_model: 4
+  stage_management:
+    use_history_based_stage_logic: true
+    use_score_based_stage_logic: false
+    false_track_confirmation_probability: 1e-3
+    true_track_deletion_probability: 0.1
+    first_stage_confirmation_history_threshold:
+      M: 0
+      N: 0
+    second_stage_confirmation_history_threshold:
+      M: 2
+      N: 3
+    deletion_history_threshold:
+      M: 3
+      N: 3
+
+
+
+#### StateModels #######################################################################################################
+state_models:
+  -
+    id: 0
+    type: CV
+    distribution:
+      type: GAUSSIAN
+      mixture: false
+      extraction_type: BEST_COMPONENT
+      post_process:
+        enable: true
+        max_components: 10
+        merging_distance: 1
+        min_weight: 0.001
+        max_variance: 100
+    extent: <CV_EXTENT>
+    model_noise_std_dev:
+      ACC_X: <CV_NOISE_ACC_X>
+      ACC_Y: <CV_NOISE_ACC_Y>
+      VEL_Z: <CV_NOISE_VEL_Z>
+      WIDTH_CHANGE: 0.001
+      LENGTH_CHANGE: 0.001
+      HEIGHT_CHANGE: 0.001
+
+  - id: 1
+    type: CTP
+    extent: <CTP_EXTENT>
+    model_noise_std_dev:
+      VEL_X: <CTP_NOISE_VEL_X>
+      VEL_Y: <CTP_NOISE_VEL_Y>
+      VEL_Z: <CTP_NOISE_VEL_Z>
+      VEL_ROT_Z: 1
+      WIDTH_CHANGE: 1
+      LENGTH_CHANGE: 1
+      HEIGHT_CHANGE: 1
+
+  - id: 2
+    type: CP
+    extent: <CP_EXTENT>
+    model_noise_std_dev:
+      VEL_X: <CP_NOISE_VEL_X>
+      VEL_Y: <CP_NOISE_VEL_Y>
+      VEL_Z: <CP_NOISE_VEL_Z>
+      WIDTH_CHANGE: 1
+      LENGTH_CHANGE: 1
+      HEIGHT_CHANGE: 1
+
+
+
+  - id: 4
+    type: CTRV
+    extent: <CTRV_EXTENT>
+    model_noise_std_dev:
+      VEL_Z: <CTRV_NOISE_VEL_Z>
+      ACC_ABS: <CTRV_NOISE_ACC_ABS>
+      ACC_ROT_Z: <CTRV_NOISE_ACC_ROT_Z>
+      WIDTH_CHANGE: 0.3
+      LENGTH_CHANGE: 0.3
+      HEIGHT_CHANGE: 0.3
+    default_mean:
+      ROT_Z: 0
+      VEL_ABS: 0
+      VEL_ROT_Z: 0
+      LENGTH: 4
+      WIDTH: 2
+      HEIGHT: 1.5
+    default_var:
+      ROT_Z: 1
+      VEL_ABS: 1
+      VEL_ROT_Z: 1
+      LENGTH: 1
+      WIDTH: 1
+      HEIGHT: 1
+
+
+birth_model:
+  type: DYNAMIC
+  allow_overlapping: true
+  min_mhd_4_overlapping_wo_extent: 1
+  default_birth_existence_prob: 0.1
+  dynamic_model:
+    mean_num_birth: 2.
+    birth_threshold: 0.001
+    force_one_step_birth: true
+    use_default_values: true
+    default_values:
+      - var:
+          VEL_ABS: 2
+          VEL_X: 10
+          VEL_Y: 10
+
+
+persistence_model:
+  type: CONSTANT
+  constant:
+    persistence_prob: 0.9
+
+lmb_distribution:
+  update_method: LBP
+  post_process_prediction:
+    enable: true
+    max_tracks: 10000
+    pruning_threshold: 1e-2
+    max_last_assoc_duration_ms: 5000
+  post_process_update:
+    enable: true
+    max_tracks: 1000000000
+    pruning_threshold: 1e-3
+  extraction:
+    type: EXISTENCE_PROBABILITY
+    threshold: 0.5
+
+glmb_distribution:
+  do_profiling: false
+  post_process_prediction:
+    enable: true
+  post_process_update:
+    enable: true
+  update:
+    joint_prediction_and_update: false
+    assignment_method: GIBBS_SAMPLING
+    max_total_number_update_hypotheses: 1000      #
+    num_update_hypotheses:
+      equal_allocation_share_ratio: 1
+      max_update_hypotheses: 5
+    gibbs_sampling:
+      max_trials_factor: 5
+      abort_after_ntimes_no_new_sol: 100
+  extraction:
+    type: CARDINALITY #Best Hypothesis #Existence Probability  # Cardinality
+    threshold: 0.3
+  lmb_2_glmb_conversion:
+    type: ALL  # K_BEST  # ALL
+    all:
+      num_track_limit: 5
+      fallback_type: K_BEST
+    sampling:
+      max_number_hypotheses: 1000             # Max Number of created Hypotheses
+      percentage_of_weight_hypotheses: 0.9    # Percentage of all possible Hypotheses weights (of 1)
+      max_num_tries: 10000
+    kBest:
+      max_number_hypotheses: 500
+
+phd_distribution:
+  prediction:
+    post_process:
+      enable: true
+      pruning_threshold: 1e-3
+      merge_distance: 5
+
+self_assessment:
+  clutter_rate_estimation:
+    static_discount: 0.999
+    dynamic_discount_alpha: 0.0001
+  detection_prob_estimation:
+    static_discount: 0.999
+    dynamic_discount_alpha: 0.0001
+
+
+filter:
+  type: LMB_IC
+  enable: true
+  gnn:
+    do_profiling: false # TODO: right now there is no profiling
+    use_grouping: true
+    costMatrixParams:
+      calculate_birth_track_density: true
+      birth_track_density: 1e-3
+      use_external_sources_density: true
+    trackManagementParams:
+      do_post_process_after_update: true
+      use_existence_prob_from_birth_model_for_score_initialisation: false # for dynamic birth - suitable categorization?
+      output_only_confirmed: true
+  lmb_fpm:
+    do_profiling: true
+    sensor_number: 2
+    pmNumBestComponents_k: 10
+    calculate_true_k_best: true
+    dynamicBirth:
+      strategy: FPM_LMB_VERSION_WITHOUT_ASSOCIATION_BEFORE
+      gating_prob: 0.99
+      pseudo_birth_prob: 0.1
+      pseudo_birth_threshold: 0.1
+      overwrite_var: true
+      var:
+        VEL_X: 25
+        VEL_Y: 25

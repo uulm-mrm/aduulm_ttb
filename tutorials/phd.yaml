@@ -1,0 +1,251 @@
+thread_pool_size: 20
+show_gui: true
+version: 1.0.0
+
+##### Measurement Models ###############################################################################################
+meas_models:
+  gaussian_models:
+    -
+      id: sim0
+      components: [ POS_X, POS_Y, LENGTH, WIDTH, ROT_Z ]
+      can_init: true
+      gating_prob: 0.99999
+      clutter:
+        rate: 10
+        rate_estimation:
+          enable: true
+          use_in_filter: false
+      detection:
+        prob: 0.8
+        prob_min: 0.01
+        prob_estimation:
+          enable: true
+          use_in_filter: false
+          prior_var: 0.001
+      occlusion:
+        model: NO_OCCLUSION
+      default_values:
+        - mean:
+            WIDTH: 1
+            LENGTH: 1
+            HEIGHT: 1
+          var:
+            POS_X: 2
+            POS_Y: 2
+            POS_Z: 0.5
+            ROT_Z: 0.1
+            VEL_ROT_Z: 0.3
+    - id: sim1
+      components: [ POS_X, POS_Y, LENGTH, WIDTH, ROT_Z ]
+      can_init: true
+      gating_prob: 0.99999
+      fix_orientation:
+        enable: false
+        weights: [ 0.8, 0.2 ]
+      clutter:
+        rate: 100
+        rate_estimation:
+          enable: true
+          use_in_filter: false
+      detection:
+        prob: 0.8
+        prob_min: 0.01
+        prob_estimation:
+          enable: true
+          use_in_filter: false
+          prior_var: 0.001
+      occlusion:
+        model: NO_OCCLUSION
+      default_values:
+        - mean:
+            WIDTH: 1
+            LENGTH: 1
+            HEIGHT: 1
+          var:
+            POS_X: 2
+            POS_Y: 2
+            POS_Z: 0.5
+            ROT_Z: 0.1
+            VEL_ROT_Z: 0.3
+    - id: sim2
+      components: [ POS_X, POS_Y, LENGTH, WIDTH, ROT_Z ]
+      can_init: true
+      gating_prob: 0.99999
+      fix_orientation:
+        enable: false
+        weights: [ 0.8, 0.2 ]
+      clutter:
+        rate: 30
+        rate_estimation:
+          enable: true
+          use_in_filter: false
+      detection:
+        prob: 0.9
+        prob_min: 0.01
+        prob_estimation:
+          enable: true
+          use_in_filter: false
+      occlusion:
+        model: NO_OCCLUSION
+      default_values:
+        - mean:
+            WIDTH: 1
+            LENGTH: 1
+            HEIGHT: 1
+          var:
+            POS_X: 2
+            POS_Y: 2
+            POS_Z: 0.5
+            ROT_Z: 0.1
+            VEL_ROT_Z: 0.3
+    - id: sim3
+      components: [ POS_X, POS_Y, LENGTH, WIDTH, ROT_Z ]
+      can_init: true
+      gating_prob: 0.99999
+      fix_orientation:
+        enable: false
+        weights: [ 0.8, 0.2 ]
+      clutter:
+        rate: 7
+        rate_estimation:
+          enable: true
+          use_in_filter: false
+      detection:
+        prob: 0.8
+        prob_min: 0.01
+        prob_estimation:
+          enable: true
+          use_in_filter: false
+      occlusion:
+        model: NO_OCCLUSION
+      default_values:
+        - mean:
+            WIDTH: 1
+            LENGTH: 1
+            HEIGHT: 1
+          var:
+            POS_X: 2
+            POS_Y: 2
+            POS_Z: 0.5
+            ROT_Z: 0.1
+            VEL_ROT_Z: 0.3
+    - id: sim4
+      components: [ POS_X, POS_Y, LENGTH, WIDTH, ROT_Z ]
+      can_init: true
+      gating_prob: 0.99999
+      fix_orientation:
+        enable: false
+        weights: [ 0.8, 0.2 ]
+      clutter:
+        rate: 7
+        rate_estimation:
+          enable: true
+          use_in_filter: false
+      detection:
+        prob: 0.8
+        prob_min: 0.01
+        prob_estimation:
+          enable: true
+          use_in_filter: false
+      occlusion:
+        model: NO_OCCLUSION
+      default_values:
+        - mean:
+            WIDTH: 1
+            LENGTH: 1
+            HEIGHT: 1
+          var:
+            POS_X: 2
+            POS_Y: 2
+            POS_Z: 0.5
+            ROT_Z: 0.1
+            VEL_ROT_Z: 0.3
+
+
+#### StateDistributions
+state:
+  multi_model:
+    use_state_models: [0]
+    birth_weights:    [1]
+  classification:
+    use_meas_models:
+      - sim0
+    classes: [UNKNOWN, PEDESTRIAN, CAR_UNION, TRUCK_UNION, BIKE_UNION]
+    use_union_classes: true
+    discount_factor_prediction: 0.98
+  estimation:
+    type: BEST_STATE_MODEL
+    transform_output_state: false
+    output_state_model: 4
+
+
+
+#### StateModels #######################################################################################################
+state_models:
+  -
+    id: 0
+    type: CV
+    distribution:
+      type: GAUSSIAN
+      mixture: false
+      extraction_type: BEST_COMPONENT
+      post_process:
+        enable: true
+        max_components: 10
+        merging_distance: 0.0000001
+        min_weight: 0.001
+        max_variance: 1000
+    extent: NONE
+    model_noise_std_dev:
+      ACC_X: 0.2
+      ACC_Y: 0.2
+      VEL_Z: 0.001
+      WIDTH_CHANGE: 0.001
+      LENGTH_CHANGE: 0.001
+      HEIGHT_CHANGE: 0.001
+
+
+
+#### Birth #############################################################################################################
+birth_model:
+  type: DYNAMIC
+  allow_overlapping: true
+  min_mhd_4_overlapping_wo_extent: 1
+  default_birth_existence_prob: 0.1
+  dynamic_model:
+    mean_num_birth: 2.
+    birth_threshold: 0.001
+    force_one_step_birth: true
+    use_default_values: true
+    default_values:
+      - var:
+          VEL_ABS: 2
+          VEL_X: 10
+          VEL_Y: 10
+
+#### Persistence #######################################################################################################
+persistence_model:
+  type: CONSTANT
+  constant:
+    persistence_prob: 0.9
+
+phd_distribution:
+  prediction:
+    post_process:
+      enable: true
+      pruning_threshold: 1e-3
+      merge_distance: 5
+
+
+self_assessment:
+  clutter_rate_estimation:
+    static_discount: 0.99
+#    dynamic_discount_alpha: 0.05
+  detection_prob_estimation:
+    static_discount: 0.99
+#    dynamic_discount_alpha: 1
+
+
+filter:
+  type: PHD
+  enable: true
