@@ -23,11 +23,12 @@ For installation, we provide a kind-of minimal Dockerfile.
     ```
     cd WORKSPACE
     git clone https://github.com/uulm-mrm/aduulm_ttb.git
+    git submodule update --init --recursive
     ```
 
 2. Build the docker image:
     ```
-    cd WORKSPACE/tracking/library/docker
+    cd aduulm_ttb/docker
     docker build . -f Dockerfile --tag tracking:0
     ```
 
