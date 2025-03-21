@@ -23,6 +23,7 @@ For installation, we provide a kind-of minimal Dockerfile.
     ```
     cd WORKSPACE
     git clone https://github.com/uulm-mrm/aduulm_ttb.git
+    cd aduulm_ttb
     git submodule update --init --recursive
     ```
 
