@@ -22,7 +22,7 @@ For installation, we provide a kind-of minimal Dockerfile.
 1. Set up your workspace, in the following referred as WORKSPACE, and download aduulm_ttb
     ```
     cd WORKSPACE
-    git clone ssh://git@mrm-git.e-technik.uni-ulm.de:7678/aduulm/source/tracking.git
+    git clone https://github.com/uulm-mrm/aduulm_ttb.git
     ```
 
 2. Build the docker image:
