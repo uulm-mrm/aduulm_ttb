@@ -52,7 +52,7 @@ For installation, we provide a kind-of minimal Dockerfile.
       - tracking_lib
       - aduulm_logger (https://github.com/uulm-mrm/aduulm_logger.git)
       - aduulm_cmake_tools (https://github.com/uulm-mrm/aduulm_cmake_tools.git)
-      - [minimal_latency_buffer (ssh://git@mrm-git.e-technik.uni-ulm.de:7678/aduulm/source/minimal_latency_buffer.git)]
+      - [minimal_latency_buffer]
     ```
 
 6. Build the ttb
