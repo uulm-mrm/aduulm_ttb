@@ -268,12 +268,11 @@ RUN mkdir /workspace && \
     cd .. && \
     git clone https://github.com/uulm-mrm/aduulm_logger.git && \
     cd aduulm_logger && \
+    git submodule update --init --recursive && \
+    cd .. && \
+    git clone https://github.com/uulm-mrm/minimal_latency_in_sequence_buffer.git && \
+    cd minimal_latency_in_sequence_buffer && \
     git submodule update --init --recursive
-#    git clone ssh://git@mrm-git.e-technik.uni-ulm.de:7678/aduulm/source/minimal_latency_buffer.git && \
-#    cd minimal_latency_buffer && \
-#    git submodule update --init --recursive && \
-#    cd .. && \
-#    tracking ...
 
 RUN apt -y update && apt -y install libdbus-1-dev libfreetype-dev libtbb-dev libglfw3-dev build-essential
 
