@@ -3,7 +3,18 @@
 This repository will contain the code for ADUULM-TTB (Autonomous Driving at Ulm University - Tracking ToolBox), as
 described in our paper submitted to the FUSION 2025 conference.
 
-If you use this toolbox, please cite [Fusion paper if accepted].
+## Citation 
+If you find this toolbox useful in your research, please consider citing it.  
+*[This will be updated with the FUSION 2025 paper if accepted.]* 
+
+```
+@misc{aduulmttb2025,
+    title={ADUULM-TTB: A Scalable, Generic, and Efficient Multi-Sensor Multi-Object Tracking Toolbox},
+    author={Scheible, Alexander and Hermann, Charlotte and Griebel, Thomas and Buchholz, Michael and Dietmayer, Klaus},
+    howpublished = {\url{https://github.com/uulm-mrm/aduulm_ttb}},
+    year={2025}
+}
+```
 
 The following publications are based on this toolbox:
 
