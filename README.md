@@ -1,11 +1,12 @@
 # ADUULM-TTB: A Scalable, Generic, and Efficient Multi-Sensor Multi-Object Tracking Toolbox
 
-This repository will contain the code for ADUULM-TTB (Autonomous Driving at Ulm University - Tracking ToolBox), as
-described in our paper submitted to the FUSION 2025 conference.
+This repository will contain the code for ADUULM-TTB (Autonomous Driving at Ulm University - Tracking ToolBox), a scalable and modular framework for multi-sensor, multi-object tracking in autonomous driving applications.
+
+For more technical details, please refer to our upcoming publication.
 
 ## Citation 
 If you find this toolbox useful in your research, please consider citing it.  
-*[This will be updated with the FUSION 2025 paper if accepted.]* 
+*[Citation details will be updated once the paper is published.]* 
 
 ```
 @misc{aduulmttb2025,
@@ -21,8 +22,7 @@ The following publications are based on this toolbox:
 * [Track Classification for Random Finite Set Based Multi-Sensor Multi-Object Tracking](https://doi.org/10.1109/SDF-MFI59545.2023.10361438)
 * [Self-Monitored Clutter Rate Estimation for the Labeled Multi-Bernoulli Filter](https://doi.org/10.23919/FUSION59988.2024.10706463)
 * [An Efficient Implementation of the Fast Product Multi-Sensor Labeled Multi-Bernoulli Filter](https://doi.org/10.1109/MFI62651.2024.10705774)
-* [Self-Monitored Detection Probability Estimation for the Labeled Multi-Bernoulli Filter] - accepted at ITSC24 but not
-  yet published
+* [Self-Monitored Detection Probability Estimation for the Labeled Multi-Bernoulli Filter](https://doi.org/10.1109/ITSC58415.2024.10920041)
 
 # Installation with the provided Docker Container
 
