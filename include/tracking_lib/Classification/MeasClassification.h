@@ -6,8 +6,9 @@ namespace ttb::classification
 {
 
 /// Represent the classification of a measurement.
-struct MeasClassification
+class MeasClassification
 {
+public:
   /// return the probability of typ if typ is in m_probs, or 1-sum(m_probs),
   [[nodiscard]] std::pair<double, bool> getProb(CLASS typ) const;
   /// number of classes in this measurement
@@ -17,7 +18,7 @@ struct MeasClassification
   /// string representation
   [[nodiscard]] std::string toString() const;
   /// data
-  std::map<CLASS, Probability> m_probs;
+  std::map<CLASS, Probability<double>> m_probs;
 };
 
 }  // namespace ttb::classification

@@ -1,58 +1,47 @@
 #include "tracking_lib/Trackers/Id_Tracker.h"
 //
-#include "tracking_lib/Measurements/MeasurementContainer.h"
 #include "tracking_lib/TTBManager/TTBManager.h"
 #include "tracking_lib/MeasurementModels/BaseMeasurementModel.h"
-#include "tracking_lib/States/Innovation.h"
+#include "tracking_lib/MultiObjectStateDistributions/Utils.h"
 
 namespace ttb
 {
 
-Id_Tracker::Id_Tracker(TTBManager* manager) : _manager{ manager }
+template class Id_Tracker<double>;
+template class Id_Tracker<AD>;
+
+template <class UDT>
+Id_Tracker<UDT>::Id_Tracker(TTBManager<UDT>* manager) : _manager{ manager }
 {
 }
 
-FILTER_TYPE Id_Tracker::type() const
+template <class UDT>
+FILTER_TYPE Id_Tracker<UDT>::type() const
 {
   return FILTER_TYPE::ID_TRACKER;
 }
 
-TTBManager* Id_Tracker::manager() const
+template <class UDT>
+TTBManager<UDT>* Id_Tracker<UDT>::manager() const
 {
   return _manager;
 }
 
-Time Id_Tracker::time() const
+template <class UDT>
+Time Id_Tracker<UDT>::time() const
 {
   return _time;
 }
 
-void Id_Tracker::cycle(Time time, std::vector<MeasurementContainer>&& measContainerList)
+template <class UDT>
+void Id_Tracker<UDT>::cycle(std::vector<DataSourceContainer<UDT>> measContainerList)
 {
-  LOG_DEB("Ushift cycle");
   LOG_DEB("Old #Tracks: " << _tracks.size());
-  if (measContainerList.empty())
+  for (DataSourceContainer<UDT> const& measurementContainer : measContainerList)
   {
     for (auto it = _tracks.begin(); it != _tracks.end();)
     {
-      it->second.predict(time - _time, EgoMotionDistribution::zero());
-      if (it->second.isEmpty())
-      {
-        it = _tracks.erase(it);
-      }
-      else
-      {
-        ++it;
-      }
-    }
-    _time = time;
-    return;
-  }
-  for (MeasurementContainer const& measurementContainer : measContainerList)
-  {
-    for (auto it = _tracks.begin(); it != _tracks.end();)
-    {
-      it->second.predict(measurementContainer._time - _time, measurementContainer._egoMotion);
+      it->second.predict(measurementContainer._time - _time, measurementContainer._predictionInfo._egoMotion);
       if (it->second.isEmpty())
       {
         it = _tracks.erase(it);
@@ -63,12 +52,26 @@ void Id_Tracker::cycle(Time time, std::vector<MeasurementContainer>&& measContai
       }
     }
     _time = measurementContainer._time;
-    auto const& measModel = *_manager->getMeasModelMap().at(measurementContainer._id);
     std::vector<MeasurementId> assocMeas;
+    for (auto const& [_, state] : _tracks)
+    {
+      _manager->database().states.insert(state);
+    }
+    utils::innovate_db(
+        _manager,
+        [&] {
+          std::vector<StateId> ids;
+          for (StateId id :
+               _tracks | std::views::values | std::views::transform([](State<UDT> const& state) { return state._id; }))
+          {
+            ids.push_back(id);
+          }
+          return ids;
+        }(),
+        measurementContainer);
     for (auto& [object_id, track] : _tracks)
     {
-      Innovation inno = measModel.calculateInnovation(measurementContainer, track);
-      for (Measurement const& measurement : measurementContainer._data)
+      for (State<UDT> const& measurement : measurementContainer._measurements)
       {
         if (not measurement._objectId.has_value())
         {
@@ -80,21 +83,25 @@ void Id_Tracker::cycle(Time time, std::vector<MeasurementContainer>&& measContai
         {
           LOG_DEB("Meas belongs to object");
           assocMeas.push_back(measurement._id);
-          if (inno._updates.contains(measurement._id))
+          if (_manager->database().state_updates.contains(
+                  std::tuple{ track._id, measurementContainer._id, measurement._id }))
           {
-            track = std::move(inno._updates.at(measurement._id).updated_dist);
+            track = _manager->get_state(
+                _manager->database()
+                    .state_updates.find(std::tuple{ track._id, measurementContainer._id, measurement._id })
+                    ->updated_state_id);
           }
           break;
         }
       }
     }
     LOG_DEB("Set up new Tracks");
-    for (Measurement const& measurement : measurementContainer._data)
+    for (State<UDT> const& measurement : measurementContainer._measurements)
     {
       if (std::ranges::find(assocMeas, measurement._id) == assocMeas.end())
       {
         LOG_DEB("Measurement: " << measurement.toString() << " used to set up new Track");
-        State state = measModel.createState(measurement, true).value();
+        State state = _manager->getMeasModel(measurementContainer._source_id).create_state(measurement, true).value();
         state._label = Label{ measurement._objectId.value().value_ };
         _tracks.emplace(measurement._objectId.value(), std::move(state));
       }
@@ -102,21 +109,29 @@ void Id_Tracker::cycle(Time time, std::vector<MeasurementContainer>&& measContai
   }
 }
 
-std::vector<State> Id_Tracker::getEstimate() const
+template <class UDT>
+std::vector<BernoulliState<UDT>> Id_Tracker<UDT>::get_estimate() const
 {
   LOG_DEB("get Estimate");
-  std::vector<State> estimate;
-  for (auto const& [object_id, track] : _tracks)
+  std::vector<BernoulliState<UDT>> estimate;
+  for (State<UDT> const& track : _tracks | std::views::values)
   {
-    estimate.push_back(track);
+    estimate.emplace_back(track, 1);
   }
   LOG_DEB("Estimated " << estimate.size() << " Tracks");
   return estimate;
 }
 
-void Id_Tracker::reset()
+template <class UDT>
+std::vector<StateId> Id_Tracker<UDT>::all_tracks() const
 {
-  _tracks.clear();
+  return {};
+}
+
+template <class UDT>
+void Id_Tracker<UDT>::reset()
+{
+  *this = Id_Tracker(_manager);
 }
 
 }  // namespace ttb

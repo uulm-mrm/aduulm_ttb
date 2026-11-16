@@ -5,7 +5,6 @@
 
 namespace ttb::graph_impl
 {
-constexpr auto tracy_color = tracy::Color::Beige;
 
 std::string Node::toString() const
 {
@@ -20,7 +19,7 @@ std::string Edge::toString() const
 
 std::vector<std::vector<NodeId>> DiGraph::components() const
 {
-  ZoneScopedNC("GraphImpl::components", tracy_color);
+  ZoneScopedN("GraphImpl::components");
   resetFlags();
   std::vector<std::vector<NodeId>> comps;
   while (true)
@@ -43,32 +42,27 @@ std::vector<std::vector<NodeId>> DiGraph::components() const
 }
 
 std::vector<std::pair<std::vector<EdgeId>, double>>
-DiGraph::kShortestPath(SELECTION_STRATEGY strategy, std::size_t k, NodeId startNodeID, NodeId endNodeID) const
+DiGraph::kLongestPaths(SELECTION_STRATEGY strategy, std::size_t k, NodeId startNodeID, NodeId endNodeID) const
 {
-  ZoneScopedNC("GraphImpl::kShortestPath", tracy_color);
-  LOG_DEB("start kShortestPath");
-  LOG_DEB("startNode: " << startNodeID);
-  LOG_DEB("endNodeId: " << endNodeID);
+  ZoneScopedNS("GraphImpl::kLongestPaths", 10);
   if (startNodeID == endNodeID)
   {
-    LOG_ERR("start node and end node is the same! Can not perform kShortestPath!");
-    throw std::runtime_error("start node and end node is the same! Can not perform kShortestPath!");
+    LOG_ERR("start node and end node is the same! Can not perform kLongestPaths!");
+    throw std::runtime_error("start node and end node is the same! Can not perform kLongestPaths!");
   }
   std::vector<EdgeId> edgesFromStart = edges_from(startNodeID);
-  graph::generalized_k_best_selection::SelectionArrayList arrayList;
+  graph::generalized_k_best_selection::MatrixWList arrayList;
   // generate the sorted matrices needed for the generalizedKBestAlgorithm!
   // either all edgesFromStart have the same end node or all have different end nodes and none the same
   if (edgesHaveSameEndNode(startNodeID))
   {
     // could also be implemented only with the kBestSelectionAlgorithm of https://ieeexplore.ieee.org/document/9524466
-    LOG_DEB("kBestSelection algorithm");
-    graph::generalized_k_best_selection::SelectionArray array;
+    graph::generalized_k_best_selection::MatrixW array;
     NodeId endNode = startNodeID;
     while (endNode != endNodeID)
     {
       assert(edgesHaveSameEndNode(endNode));
-      LOG_DEB("While - endNode: " << endNode);
-      std::vector<EdgeId> edgesFrom = edges_from(endNode);
+      graph::generalized_k_best_selection::MatrixRow edgesFrom = edges_from(endNode);
       assert([&] {  // NOLINT
         if (edgesFrom.empty())
         {
@@ -93,11 +87,9 @@ DiGraph::kShortestPath(SELECTION_STRATEGY strategy, std::size_t k, NodeId startN
   {
     // only possible to solve with the GeneralizedKBestSelectionAlgorithm
     // (https://ieeexplore.ieee.org/document/10705774)
-    LOG_DEB("generalizedKBestSelection algorithm");
-
     for (const auto& edge : edgesFromStart)
     {
-      graph::generalized_k_best_selection::SelectionArray array;
+      graph::generalized_k_best_selection::MatrixW array;
       std::vector<EdgeId> dummyEdge;
       dummyEdge.push_back(edge);
       array.push_back(dummyEdge);
@@ -105,14 +97,17 @@ DiGraph::kShortestPath(SELECTION_STRATEGY strategy, std::size_t k, NodeId startN
       while (endNode != endNodeID)
       {
         std::vector<EdgeId> edgesFrom = edges_from(endNode);
-        if (edgesFrom.empty())
-        {
-          LOG_FATAL("This graph structure is not allowed for kShortestPath!");
-          throw std::runtime_error("This graph structure is not allowed for kShortestPath!");
-        }
+        assert([&] {  // NOLINT
+          if (edgesFrom.empty())
+          {
+            LOG_FATAL("This graph structure is not allowed for kShortestPath!");
+            return false;
+          }
+          return true;
+        }());
         endNode = _edges.at(edgesFrom.at(0))._end;
         // sort edges bei weight in descending order
-        std::sort(edgesFrom.begin(), edgesFrom.end(), [&edges = _edges](const EdgeId& a, const EdgeId& b) {
+        std::ranges::sort(edgesFrom, [&edges = _edges](const EdgeId& a, const EdgeId& b) {
           return edges.at(a)._weight > edges.at(b)._weight;
         });
         array.push_back(std::move(edgesFrom));
@@ -125,20 +120,16 @@ DiGraph::kShortestPath(SELECTION_STRATEGY strategy, std::size_t k, NodeId startN
   std::vector<std::pair<std::vector<EdgeId>, double>> selectionsList;
   switch (strategy)
   {
-    case SELECTION_STRATEGY::ALL_COMBINATIONS:
-    {
-      auto apportionStrategy = graph::generalized_k_best_selection::AllCombinations{};
-      selectionsList = apportionStrategy(arrayList, _edges);
-      break;
-    }
     case SELECTION_STRATEGY::GENERALIZED_K_BEST:
     {
-      auto apportionStrategy = graph::generalized_k_best_selection::GeneralizedKBest{ k };
-      selectionsList = apportionStrategy(arrayList, _edges);
+      graph::generalized_k_best_selection::GKBS gkbs(arrayList, k, _edges);
+      selectionsList = gkbs.runAlgorithm();
       break;
     }
     default:
-      throw std::runtime_error("Selection Strategy is not known!!! Change it in config file");
+    {
+      assert(false);
+    }
   }
   std::ranges::sort(selectionsList,
                     [](std::pair<std::vector<EdgeId>, double> const& first,
@@ -199,7 +190,7 @@ void DiGraph::resetFlags() const
 
 std::vector<NodeId> DiGraph::bfs(NodeId start, std::optional<NodeId> target, bool do_reset) const
 {
-  ZoneScopedNC("GraphImpl::bfs", tracy_color);
+  ZoneScopedN("GraphImpl::bfs");
   if (do_reset)
   {
     resetFlags();
@@ -274,20 +265,6 @@ DiGraph::DiGraph(std::size_t nodes_num, std::vector<Edge> const& edges)
     _graph.at(edge._begin).push_back(edge._id);
     _graph.at(edge._end).push_back(edge._id);
   }
-}
-
-Graph::Graph(std::size_t num_nodes, std::vector<Edge> edges)
-  : DiGraph([&] {
-    std::vector<Edge> uni_edges;
-    uni_edges.reserve((2 * edges.size()));
-    for (auto const& edge : edges)
-    {
-      uni_edges.emplace_back(EdgeId{ 2 * edge._id }, edge._begin, edge._end, edge._weight);
-      uni_edges.emplace_back(EdgeId{ 2 * edge._id + 1 }, edge._end, edge._begin, edge._weight);
-    }
-    return DiGraph(num_nodes, std::move(uni_edges));
-  }())
-{
 }
 
 }  // namespace ttb::graph_impl

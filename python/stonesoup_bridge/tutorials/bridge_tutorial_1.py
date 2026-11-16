@@ -19,7 +19,11 @@ from stonesoup.deleter.time import UpdateTimeDeleter
 from stonesoup.plotter import Plotterly
 from stonesoup.tracker.simple import SingleTargetTracker
 
+# %%
+import sys
+import os
 
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 # %%
 """
 ==============================
@@ -66,16 +70,16 @@ from stonesoup.models.clutter.clutter import ClutterModel
 # Define the clutter model which will be the same for both sensors
 # Keep the clutter rate low due to particle filter errors
 clutter_model = ClutterModel(
-    clutter_rate=1,
+    clutter_rate=2,
     distribution=np.random.default_rng().uniform,
-    dist_params=((-50, 20), (-10, 30))
+    dist_params=((-100, 100), (-10, 70))
 )
 
 
 from stonesoup.models.measurement.linear import LinearGaussian
 
 
-cov = 2
+cov = 0.2
 position_mapping=(0, 2)
 measurement_model = LinearGaussian(
     ndim_state=5,  # Number of state dimensions (position and velocity in 2D and Z Pos = 0)
@@ -88,7 +92,7 @@ from stonesoup_bridge.bridge import Sensor_TTB
 
 sensor = Sensor_TTB(measurement_model=measurement_model,
                     clutter_model=clutter_model,
-                    detection_probability=0.99)
+                    detection_probability=0.9)
 
 # Import the platform to place the sensors on
 from stonesoup.platform.base import FixedPlatform
@@ -164,6 +168,7 @@ from stonesoup.metricgenerator.manager import MultiManager
 # Define a data associator between the tracks and the truths
 from stonesoup.dataassociator.tracktotrack import TrackToTruth
 
+stone_soup_tracker = False
 
 c=10
 p=2
@@ -176,7 +181,7 @@ gospa_ttb = GOSPAMetric(c=c, p=p, generator_name="GOSPA-TTB",
 
 
 # GOSPA Stone Soup
-gospa_kalman = GOSPAMetric(c=c, p=p, generator_name='GOSPA-Stone-Soup',
+if stone_soup_tracker: gospa_kalman = GOSPAMetric(c=c, p=p, generator_name='GOSPA-Stone-Soup',
                             tracks_key='tracks',  truths_key='truths', switching_penalty=1)
 
 
@@ -184,7 +189,7 @@ gospa_kalman = GOSPAMetric(c=c, p=p, generator_name='GOSPA-Stone-Soup',
 associator = TrackToTruth(association_threshold=30)
 
 # Use a metric manager to deal with the various metrics
-metric_manager = MultiManager([gospa_ttb, gospa_kalman],
+metric_manager = MultiManager([gospa_ttb, gospa_kalman] if stone_soup_tracker else [gospa_ttb],
                               associator)
 
 
@@ -207,8 +212,10 @@ tracks = set()
 detection_iter = iter(platform_simulator)
 tracker_iter = iter(tracker)
 
+
+
 for t in range(number_of_steps):  # loop over the various time-steps
-    print(t)
+    # print(t)
     time, gt = next(ground_truths)
     timesteps.append(time)
     truths.update(gt)
@@ -217,14 +224,17 @@ for t in range(number_of_steps):  # loop over the various time-steps
     detections.append(det)
     all_detections.append([det])
 
-    # Run the Extended Kalman filter
-    _, track = next(tracker_iter)
-    # print(track)
-    tracks.update(track)
+    if stone_soup_tracker:
+        # Run the Extended Kalman filter
+        _, track = next(tracker_iter)
+        # print(track)
+        tracks.update(track)
 
 
 # Add data to the metric manager
-metric_manager.add_data({'tracks': tracks}, overwrite=False)
+if stone_soup_tracker:
+    metric_manager.add_data({'tracks': tracks}, overwrite=False)
+    print("Number of Stone Soup Tracks:", len(tracks))
 
 metric_manager.add_data({'truths': truths}, overwrite=False)
 # %%
@@ -245,7 +255,7 @@ tracks_ttb, _ = bridge.track_via_ttb(transition_model=transition_model,
                                   timesteps=timesteps,
                                   position_mapping=position_mapping)
 
-print("Number of Stone Soup Tracks:", len(tracks))
+
 print("Number of TTB Tracks:", len(tracks_ttb))
 print("Number of Truths:", len(truths))
 
@@ -258,9 +268,9 @@ PLOTTING ALL TRACKS, TRUTHS AND DETECTIONS
 ==========================================
 """
 from time import sleep
-sleep(5) # sleep for 5s to prevent buffer overflow
+sleep(4) # sleep for 5s to prevent buffer overflow
 
-PLOT = False
+PLOT = True
 if PLOT:
     print("Plotting...")
     plotter = Plotterly()
@@ -273,7 +283,7 @@ if PLOT:
 
     plotter.plot_ground_truths(truths, [0, 2])
 
-    plotter.plot_tracks(tracks, [0, 2], line=dict(color='cyan'), label='Stone Soup Tracks')
+    if stone_soup_tracker: plotter.plot_tracks(tracks, [0, 2], line=dict(color='cyan'), label='Stone Soup Tracks')
     plotter.plot_tracks(tracks_ttb, [0, 2], line=dict(color='#A32638'), label='TTB Tracks')
 
     plotter.fig.show(renderer="browser")
@@ -286,6 +296,7 @@ if PLOT:
     import matplotlib
     matplotlib.use('TkAgg')
 
-    # plt = bridge.plot_gospa(metrics, gospa_gen_name=["GOSPA-TTB", "GOSPA-Stone-Soup"])
-    plt = bridge.plot_all_gospas(metrics, gospa_gen_name=["GOSPA-TTB", "GOSPA-Stone-Soup"])
+    if stone_soup_tracker:
+        plt = bridge.plot_all_gospas(metrics, gospa_gen_name=["GOSPA-TTB", "GOSPA-Stone-Soup"])
+    else: plt = bridge.plot_all_gospas(metrics, gospa_gen_name=["GOSPA-TTB"])
     plt.show()

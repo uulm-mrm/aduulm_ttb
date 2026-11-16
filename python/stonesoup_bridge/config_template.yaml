@@ -1,5 +1,5 @@
-thread_pool_size: 20
-show_gui: true
+thread_pool_size: 5
+#show_gui: true
 version: 1.0.0
 
 ##### Measurement Models ###############################################################################################
@@ -10,7 +10,7 @@ meas_models:
       id: <ID_SIM0>
       components: [ POS_X, POS_Y, VEL_X, VEL_Y, LENGTH, WIDTH, ROT_Z ]
       can_init: true
-      gating_prob: 0.99999
+      gating_prob: 0.999955 # MHD = 20 =^ 0.999955
       clutter:
         rate: <SIM0_CLUTTER_RATE>
         rate_estimation:
@@ -20,7 +20,7 @@ meas_models:
         prob: <SIM0_DETECTION_PROB>
         prob_min: 0.01
         prob_estimation:
-          enable: true
+          enable: false
           use_in_filter: false
           prior_var: 0.0001
       occlusion:
@@ -81,7 +81,7 @@ state_models:
       mixture: false
       extraction_type: BEST_COMPONENT
       post_process:
-        enable: true
+        enable: false
         max_components: 10
         merging_distance: 1
         min_weight: 0.001
@@ -146,27 +146,47 @@ state_models:
       HEIGHT: 1
 
 
+persistence_model:
+  type: CONSTANT
+  constant:
+    persistence_prob: 0.99
+  roi:
+    inside_persistence_prob: 1
+    outside_persistence_prob: 0
+
 birth_model:
-  type: DYNAMIC
+  type: STATIC
   allow_overlapping: true
   min_mhd_4_overlapping_wo_extent: 1
   default_birth_existence_prob: 0.1
   dynamic_model:
-    mean_num_birth: 2.
-    birth_threshold: 0.001
+    mean_num_birth: 1.
+    birth_threshold: 0.1
     force_one_step_birth: true
     use_default_values: true
     default_values:
       - var:
           VEL_ABS: 2
-          VEL_X: 10
-          VEL_Y: 10
-
-
-persistence_model:
-  type: CONSTANT
-  constant:
-    persistence_prob: 0.9
+          VEL_X: 5
+          VEL_Y: 5
+  static_model: # also used for ROI Birth model
+    locations:
+      - mean:
+          POS_X: 100 #100
+          POS_Y: 100 #100
+          POS_Z: 0
+          VEL_X: 0
+          VEL_Y: 0
+        var:
+          POS_X: 22500 #22500
+          POS_Y: 22500 #22500
+          POS_Z: 0.001
+          VEL_X: 25
+          VEL_Y: 25
+  roi_model:
+    use_sensors_fov_instead: true
+    cov_scaling_factor: 1
+    confidence_prob: 0.99
 
 lmb_distribution:
   update_method: LBP
@@ -228,6 +248,20 @@ self_assessment:
   detection_prob_estimation:
     static_discount: 0.999
     dynamic_discount_alpha: 0.0001
+
+pmbm_distribution:
+  estimation_threshold: 0.4
+  ppp:
+    birth_weight: 0.005 #0.002
+    pruning_threshold: 1e-5
+  mbm:
+    pruning_threshold_bernoulli: 1e-5
+    pruning_threshold_hypotheses: 1e-5
+    max_number_hypotheses: 200
+    recycle_threshold_bernoulli: <RECYCLING_THRESHOLD>
+    enable_recycling: false
+    assignment_method: MURTY #GIBBS_SAMPLING #MURTY
+    enable_projection: false # true=PMB
 
 
 filter:

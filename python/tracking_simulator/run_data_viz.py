@@ -36,10 +36,55 @@ def plot_mc_estimation(mc_results, what):
     ax1.legend()
     ax2.legend()
 
+def plot_bayes_factor(mc_results, what='meas_likelihoods'):
+    clutter_bayes_factor = {}
+    detection_bayes_factor = {}
+    for model_id, data in mc_results[what].items():
+        if model_id not in clutter_bayes_factor:
+            clutter_bayes_factor[model_id] = {}
+            detection_bayes_factor[model_id] = {}
+        for (time1, meas_mc_runs), (time2, clutter_mc_runs) in zip(data['meas_likelihood'].items(), data['soft_clutter_meas_likelihood'].items()):
+            assert(time1==time2)
+            clutter_bayes_factor[model_id][time1] = np.mean([ml-sl for ml, sl in zip(meas_mc_runs, clutter_mc_runs)])
+        for (time1, meas_mc_runs), (time2, det_mc_runs) in zip(data['meas_likelihood'].items(), data['soft_detection_meas_likelihood'].items()):
+            assert(time1==time2)
+            detection_bayes_factor[model_id][time1] = np.mean([ml-sl for ml, sl in zip(meas_mc_runs, det_mc_runs)])
+    fig, (ax1, ax2) = plt.subplots(2, 1)
+    fig.suptitle(what)
+    with open("clutter_bf.txt", 'w') as file:
+        for model_id, data in clutter_bayes_factor.items():
+            ts = [time for time in data.keys()]
+            bf = [np.exp(mean) for mean in data.values()]
+            ax1.plot(ts, bf,
+                     label=f'{model_id} Mean: {np.mean([mean for mean in data.values()])}')
+            file.write(to_tikz_plot(list(range(len(ts))), bf, model_id))
+            ax1.plot([min(ts), max(ts)], [1, 1])
+    with open("detection_bf.txt", 'w') as file:
+        for model_id, data in detection_bayes_factor.items():
+            ts = [time for time in data.keys()]
+            bf = [np.exp(mean) for mean in data.values()]
+            file.write(to_tikz_plot(list(range(len(ts))), bf, model_id))
+            ax2.plot(ts, bf,
+                     label=f'{model_id} Mean: {np.mean([mean for mean in data.values()])}')
+            ax2.plot([min(ts), max(ts)], [1, 1])
+    ax1.set_yscale('log')
+    ax2.set_yscale('log')
+    ax1.set_title("Clutter Bayes Factor")
+    ax2.set_title("Detection Bayes Factor")
+    ax1.set_xlabel('Time')
+    ax2.set_xlabel('Time')
+    ax1.set_ylabel("Bayes Factor")
+    ax2.set_ylabel("Bayes Factor")
+    ax1.legend()
+    ax2.legend()
+
+
+
 def plot_mc_gospa(mc_results):
     gospa = mc_results['gospa']
     fig, ax = plt.subplots()
     fig.suptitle("GOSPA")
+    print(gospa.keys())
     mean_gospa = [ np.mean([v['distance'] for v in gospa[time]]) for time in gospa]
     print(f'Mean Gospa {np.mean(mean_gospa)}')
     ax.plot([t for t in gospa.keys()], mean_gospa, label='Gospa')
@@ -54,14 +99,27 @@ def plot_mc_gospa(mc_results):
     ax.plot([t for t in gospa.keys()], gospa_false, label='#False')
     ax.legend()
 
+def to_tikz_plot(x, y, note="", tol=0.1):
+    import shapely
+    line = shapely.LineString([(x, y) for x, y in zip(x, y)])
+    line = line.simplify(tol)
+    s = ""
+    s += "\\addplot [black]\ntable {%" + note + "\n"
+    for x, y in line.coords:
+        s += f"{x} {y}\n"
+    s += "};\n"
+    return s
+
 def plot_scenario(mc_results, mc_run=0):
     fig, ax = plt.subplots()
-    fig.suptitle("Ground Truth")
     ax.set_xlabel('x [m]')
     ax.set_ylabel('y [m]')
-    for target in mc_results['scenario'][mc_run]['targets']:
-        created_path = target["path"]
-        ax.plot(created_path[0], created_path[1])
+    with open("gt_tracks.txt", 'w') as file:
+        for target in mc_results['scenario'][mc_run]['targets']:
+            created_path = target["path"]
+            ax.plot(created_path[0], created_path[1])
+            file.write(to_tikz_plot(created_path[0], created_path[1]))
+
 
 def plot_tracks(mc_results, mc_run=0):
     trajs = {}
@@ -92,7 +150,9 @@ if __name__ == '__main__':
     args = parser.parse_args()
     with open(args.file, 'rb') as f:
         mc_results = pickle.load(f)
-
+    # print(mc_results.keys())
+    # mc_results = mc_results[(0.55, 0.5, 1)]
+    plot_bayes_factor(mc_results)
     plot_mc_estimation(mc_results, 'clutter_estimation')
     plot_mc_estimation(mc_results, 'detection_estimation')
     plot_mc_gospa(mc_results)

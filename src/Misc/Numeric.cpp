@@ -1,41 +1,38 @@
 #include "tracking_lib/Misc/Numeric.h"
+#include <tracy/tracy/Tracy.hpp>
 
 namespace ttb::numeric
 {
 
-Vector fold(Vector const& first, Vector const& second)
+template Vector<double> fold(Vector<double> const& first, Vector<double> const& second);
+template Vector<AD> fold(Vector<AD> const& first, Vector<AD> const& second);
+template<class UDT>
+Vector<UDT> fold(Vector<UDT> const& first, Vector<UDT> const& second)
 {
-  Vector merged = Vector::Zero(first.rows() + second.rows() - 1);
+  ZoneScopedN("Numeric::fold_vector");
+  assert([&] {  // NOLINT
+    if (first.size() == 0 or second.size() == 0)
+    {
+      LOG_FATAL("empty input");
+      return false;
+    }
+    return true;
+  }());
+  Vector<UDT> merged = Vector<UDT>::Zero(first.rows() + second.rows() - 1);
   for (Index i = 0; i < first.rows(); ++i)
   {
     merged(Eigen::seq(i, i - 1 + second.rows())) += first(i) * second;
   }
-  return merged;
-}
-
-Matrix fold(Matrix const& first, Matrix const& second)
-{
-  Matrix merged = Matrix::Zero(first.rows() + second.rows() - 1, first.cols() + second.cols() - 1);
-  for (Index i = 0; i < first.rows(); ++i)
+  Index max = 0;
+  for (Index i = 0; i < merged.rows(); ++i)
   {
-    for (Index j = 0; j < first.cols(); ++j)
+    if (merged(i) > 0)
     {
-      auto ind_i = Eigen::seq(i, i - 1 + second.rows());
-      auto ind_j = Eigen::seq(j, j - 1 + second.cols());
-      merged(ind_i, ind_j) += first(i, j) * second;
+      max = std::max(max, i);
     }
   }
-  return merged;
-}
-
-double logsumexp(Vector const& v)
-{
-  double val = v.maxCoeff();
-  if (std::isinf(-val))
-  {
-    return -std::numeric_limits<double>::infinity();
-  }
-  return std::log((v.array() - val).exp().sum()) + val;
+  Vector<UDT> reduced = merged(Eigen::seq(0, max));
+  return reduced;
 }
 
 }  // namespace ttb::numeric

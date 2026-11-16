@@ -22,6 +22,6 @@ struct Solution
 /// The implementation can deal with infinity costs, this mean that this row/column assignment is not possible.
 /// Algorithms for the Assignment and Transportation Problems, James Munkres, Journal of the Society for Industrial and
 /// Applied Mathematics 1957 5:1, 32-38 https://doi.org/10.1137/0105003
-Solution solve(Matrix const& m);
+Solution solve(Matrix<double> const& m);
 
 }  // namespace ttb::hungarian

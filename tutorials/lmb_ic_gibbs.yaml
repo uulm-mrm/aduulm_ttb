@@ -1,6 +1,20 @@
-thread_pool_size: 10
+thread_pool_size: 20
 version: 1.0.0
-
+show_gui: true
+ground_truth_metrics:
+  ospa:
+    evaluate: true
+    c: 10
+    p: 2
+  ospa2:
+    evaluate: true
+    c: 10
+    p: 2
+    sliding_window_length_ms: 1000
+  gospa:
+    evaluate: true
+    c: 10
+    p: 2
 
 ##### Measurement Models ###############################################################################################
 meas_models:
@@ -75,7 +89,7 @@ meas_models:
 #### StateDistributions
 state:
   multi_model:
-    use_state_models: [4]
+    use_state_models: [0]
     birth_weights:    [1]
     enable_markov_transition: false
   classification:
@@ -87,29 +101,33 @@ state:
   estimation:
     type: BEST_STATE_MODEL
     transform_output_state: false
-    output_state_model: 4
+    output_state_model: 0
 
 
 
 #### StateModels #######################################################################################################
 state_models:
   -
-    id: 4
-    type: CTRV
-    extent: RECTANGULAR
+    id: 0
+    type: CV
+    distribution:
+      type: GAUSSIAN
+      mixture: true
+      extraction_type: BEST_COMPONENT
+      post_process:
+        enable: true
+        max_components: 10
+        merging_distance: 0.1
+        min_weight: 0.001
+        max_variance: 1000
+    extent: NONE
     model_noise_std_dev:
-      VEL_Z: 0.1
-      ACC_ABS: 5
-      ACC_ROT_Z: 0.5
-      WIDTH_CHANGE: 0.3
-      LENGTH_CHANGE: 0.3
-      HEIGHT_CHANGE: 0.3
-    default_mean:
-      VEL_ABS: 0
-      VEL_ROT_Z: 0
-    default_var:
-      VEL_ABS: 1
-      VEL_ROT_Z: 1
+      ACC_X: 0.1
+      ACC_Y: 0.1
+      VEL_Z: 0.001
+      WIDTH_CHANGE: 0.001
+      LENGTH_CHANGE: 0.001
+      HEIGHT_CHANGE: 0.001
 
 birth_model:
   type: DYNAMIC
@@ -117,14 +135,19 @@ birth_model:
   min_mhd_4_overlapping_wo_extent: 1
   default_birth_existence_prob: 0.1
   dynamic_model:
-    mean_num_birth: 2.
+    mean_num_birth: 2
     birth_threshold: 0.1
     force_one_step_birth: true
+    use_default_values: true
+    default_values:
+      - var:
+          VEL_ABS: 2
+          VEL_X: 10
+          VEL_Y: 10
 
 
 lmb_distribution:
   update_method: GLMB
-  use_grouping: true
   post_process_prediction:
     enable: true
     max_tracks: 1000          # only keep max_tracks
@@ -144,6 +167,7 @@ lmb_distribution:
 
 glmb_distribution:
   do_profiling: false
+  use_grouping: true
   post_process_prediction:
     enable: false
   post_process_update:
@@ -153,7 +177,7 @@ glmb_distribution:
     assignment_method: GIBBS_SAMPLING
     max_total_number_update_hypotheses: 1000
     num_update_hypotheses:
-      equal_allocation_share_ratio: 1
+      equal_allocation_share_ratio: 0.1
       max_update_hypotheses: 5
     gibbs_sampling:
       max_trials_factor: 5
@@ -161,17 +185,9 @@ glmb_distribution:
   extraction:
     type: CARDINALITY #Best Hypothesis #Existence Probability  # Cardinality
     threshold: 0.3
-  lmb_2_glmb_conversion:
-    type: ALL  # K_BEST  # ALL
-    all:
-      num_track_limit: 5
-      fallback_type: K_BEST
-    sampling:
-      max_number_hypotheses: 1000             # Max Number of created Hypotheses
-      percentage_of_weight_hypotheses: 0.9    # Percentage of all possible Hypotheses weights (of 1)
-      max_num_tries: 10000
-    kBest:
-      max_number_hypotheses: 500
+  add_tracks:
+    max_number_hypotheses: 500
+
 
 filter:
   type: LMB_IC

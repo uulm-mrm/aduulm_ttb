@@ -1,6 +1,20 @@
-thread_pool_size: 10
+thread_pool_size: 20
 show_gui: true
 version: 1.0.0
+ground_truth_metrics:
+  ospa:
+    evaluate: true
+    c: 10
+    p: 2
+  ospa2:
+    evaluate: true
+    c: 10
+    p: 2
+    sliding_window_length_ms: 1000
+  gospa:
+    evaluate: true
+    c: 10
+    p: 2
 
 
 ##### Measurement Models ###############################################################################################
@@ -29,8 +43,8 @@ meas_models:
         model: NO_OCCLUSION
       default_values:
         - mean:
-            WIDTH: 1
-            LENGTH: 1
+            WIDTH: 2
+            LENGTH: 2
             HEIGHT: 1
           var:
             POS_X: 2
@@ -39,6 +53,7 @@ meas_models:
             ROT_Z: 0.1
             VEL_ROT_Z: 0.3
     - id: sim1
+      enable: false
       components: [ POS_X, POS_Y, LENGTH, WIDTH, ROT_Z ]
       can_init: true
       gating_prob: 0.99999
@@ -60,8 +75,8 @@ meas_models:
         model: NO_OCCLUSION
       default_values:
         - mean:
-            WIDTH: 1
-            LENGTH: 1
+            WIDTH: 2
+            LENGTH: 2
             HEIGHT: 1
           var:
             POS_X: 2
@@ -76,8 +91,8 @@ meas_models:
 #### StateDistributions
 state:
   multi_model:
-    use_state_models: [0]
-    birth_weights:    [1]
+    use_state_models: [0, 4]
+    birth_weights:    [0.4, 0.6]
     enable_markov_transition: false
     markov_transition:
       - type: [CAR_UNION, TRUCK_UNION, BIKE_UNION, PEDESTRIAN, UNKNOWN]
@@ -94,7 +109,6 @@ state:
     output_state_model: 4
 
 
-
 #### StateModels #######################################################################################################
 state_models:
   - id: 0
@@ -109,7 +123,7 @@ state_models:
         merging_distance: 0.0000001
         min_weight: 0.001
         max_variance: 1000
-    extent: NONE
+    extent: RECTANGULAR
     model_noise_std_dev:
       ACC_X: 0.2
       ACC_Y: 0.2
@@ -119,7 +133,7 @@ state_models:
       HEIGHT_CHANGE: 0.001
   -
     id: 4
-    type: CTRV
+    type: CTP
     extent: RECTANGULAR
     distribution:
       type: GAUSSIAN
@@ -128,12 +142,17 @@ state_models:
         enable: false
     model_noise_std_dev:
       VEL_Z: 0.1
+      VEL_X: 0.1
+      VEL_Y: 0.1
+      VEL_ROT_Z: 0.1
       ACC_ABS: 5
       ACC_ROT_Z: 0.5
       WIDTH_CHANGE: 0.3
       LENGTH_CHANGE: 0.3
       HEIGHT_CHANGE: 0.3
     default_mean:
+      WIDTH: 1
+      LENGTH: 1
       VEL_ABS: 0
       VEL_ROT_Z: 0
     default_var:
@@ -144,40 +163,84 @@ birth_model:
   type: DYNAMIC
   allow_overlapping: true
   min_mhd_4_overlapping_wo_extent: 1
-  default_birth_existence_prob: 0.1
+  default_birth_existence_prob: 0.05
   dynamic_model:
     mean_num_birth: 2.
     birth_threshold: 0.1
     force_one_step_birth: true
+    use_default_values: true
+    default_values:
+      - var:
+          VEL_ABS: 2
+          ACC_ABS: 5
+          VEL_X: 10
+          VEL_Y: 10
+          VEL_ROT_Z: 1
+          ROT_Z: 1
 
 persistence_model:
   type: CONSTANT
   constant:
     persistence_prob: 0.9
 
+
+
+self_assessment:
+  enable: true
+  track_assessment:
+    window_length_ms: 500
+  clutter_rate_estimation:
+    enable: true
+  detection_prob_estimation:
+    enable: true
+  persistence_prob_estimation:
+    enable: true
+    prior_mean: 0.95
+    prior_var: 0.04
+    window_length_ms: 900
+  bayes_factor:
+    num_updates: 1
+    detection:
+      enable: false
+      comparison:
+        - mean: 0.5
+          var: 0.03
+
 glmb_distribution:
   do_profiling: false
+  use_grouping: true
+  social_force_interaction_prediction:
+    enable: false
+    horizon_ms: 1000
+    amplifier: 100
+    sensitivity: 0.4
   post_process_prediction:
     enable: true
-    pruning_threshold: 1e-5
-    max_hypotheses: 300
+    pruning_threshold: 1e-10
+    max_hypotheses: 100
   post_process_update:
     enable: true
-    pruning_threshold: 1e-5
-    max_hypotheses: 300
+    method: STANDARD
+    standard_pp:
+      pruning_threshold: 1e-10
+      max_hypotheses: 100
+      max_states_per_label: 10
   update:
     joint_prediction_and_update: true
     assignment_method: GIBBS_SAMPLING
-    max_total_number_update_hypotheses: 1000
+    max_total_number_update_hypotheses: 100
     num_update_hypotheses:
-      equal_allocation_share_ratio: 1
-      max_update_hypotheses: 5
+      equal_allocation_share_ratio: 0.0
+      max_update_hypotheses: 100
     gibbs_sampling:
-      max_trials_factor: 5
-      abort_after_ntimes_no_new_sol: 100
+      max_trials_factor: 500
+      abort_after_ntimes_no_new_sol: 500
   extraction:
     type: CARDINALITY #Best Hypothesis #Existence Probability  # Cardinality
     threshold: 0.3
+  add_tracks:
+    max_number_hypotheses: 50
+
 
 
 filter:

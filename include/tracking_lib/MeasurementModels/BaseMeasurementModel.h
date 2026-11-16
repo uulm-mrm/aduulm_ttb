@@ -1,72 +1,75 @@
 #pragma once
 
+#include "tracking_lib/TTBTypes/Concepts.h"
 #include "tracking_lib/TTBTypes/TTBTypes.h"
-#include "tracking_lib/Measurements/SensorInformation.h"
+#include "tracking_lib/MeasurementModels/GaussianMeasurementModel.h"
+#include "tracking_lib/TTBTypes/TTBTypes.h"
+// #include "tracking_lib/Measurements/SensorInformation.h"
 #include "tracking_lib/States/State.h"
-#include "tracking_lib/TTBTypes/Components.h"
 #include "tracking_lib/TTBTypes/Params.h"
 
 namespace ttb
 {
 
-class TTBManager;
-class BaseStateModel;
-class Measurement;
-class MeasurementContainer;
-
-/// This is the measurement model interface.
-/// It provides the state update with the calcInnovation functionality, estimate the detectionProbability, estimate the
-/// clutter and set upp new states based on measurements
-class BaseMeasurementModel
+template <class UDT>
+class SingleObjectMeasurementModel
 {
 public:
-  virtual ~BaseMeasurementModel() = default;
-  /// Access to the TTBManager.
-  [[nodiscard]] virtual TTBManager* manager() const = 0;
-  /// Calculates the innovation (kinematic state update/Kalman update) of the state with the measurements in the
-  /// container and stores result in the InnovationMap of the dist
-  [[nodiscard]] virtual Innovation calculateInnovation(MeasurementContainer const& measurements,
-                                                       State const& dist) const = 0;
-  /// String representation
-  [[nodiscard]] virtual std::string toString() const = 0;
-  /// The type of the measurement model.
-  [[nodiscard]] virtual MEASUREMENT_MODEL_TYPE type() const = 0;
-  /// The unique Measurement Model==Sensor/Data Source Id.
-  /// Every sensor must have an unique id.
-  [[nodiscard]] virtual MeasModelId id() const = 0;
-  /// The maximal supported measurement components aka the measurement space.
-  /// Note: The measurement model should also support measurements with only a subset of the components.
-  [[nodiscard]] virtual Components const& meas_model_comps() const = 0;
-  /// Create a new State based on the given measurement.
-  /// If the transformation from the measurement space to the state space fails and force is not true, return nullopt.
-  /// If force is set to true, a State is always created using the defaultValues of the measurement model if needed
-  [[nodiscard]] virtual std::optional<State> createState(Measurement const& meas, bool force = false) const = 0;
-  /// Creates a new State based on possible birth candidates from the previous time step
-  /// and a measurement
-  [[nodiscard]] virtual std::optional<State> initStage2(std::vector<Measurement> const& oldMeasurements,
-                                                        Measurement const& measurement,
-                                                        SensorInformation const& sensorInfo) const = 0;
-  /// Return the detection probability of the given measurement vector.
-  [[nodiscard]] virtual Probability getDetectionProbability(Vector const& predictedMeasurement,
-                                                            Components const& comps,
-                                                            std::optional<FieldOfView> const& fov) const = 0;
-  /// Return the clutter intensity for a given measurement.
-  [[nodiscard]] virtual double getClutterIntensity(Measurement const& meas,
-                                                   SensorInformation const& sensorInformation) const = 0;
+  using AllModels = std::variant<GaussianMeasurementModel<UDT>>;
 
-  struct DefaultVal
+  std::string to_string() const
   {
-    std::optional<double> mean;
-    std::optional<double> var;
-  };
-  /// Default values for the measurement model.
-  [[nodiscard]] virtual DefaultVal defaultVal(COMPONENT comp, CLASS type) const = 0;
+    return std::visit([&](auto const& model) { return model.toString(); }, _meas_model);
+  }
+  SourceId id() const
+  {
+    return std::visit([&](auto const& model) { return model.id(); }, _meas_model);
+  }
+  [[nodiscard]] std::tuple<StateDetection<UDT>,
+                           std::vector<std::tuple<StateId, StateId, State<UDT>, UDT>>,
+                           std::vector<MeasClutter<UDT>>>
+  calculate_innovation(DataSourceContainer<UDT> const& measurements, State<UDT> const& dist) const
+  {
+    return std::visit([&](auto const& model) { return model.calculateInnovation(measurements, dist); }, _meas_model);
+  }
+  [[nodiscard]] std::tuple<UDT, bool> detection_probability(DataSourceContainer<UDT> const& meas_container,
+                                                            State<UDT> const& state) const
+  {
+    return std::visit([&](auto const& model) { return model.detection_probability(meas_container, state); },
+                      _meas_model);
+  }
+  [[nodiscard]] TTBManager<UDT> const& manager() const
+  {
+    return _manager;
+  }
+  [[nodiscard]] Components const& meas_model_comps() const
+  {
+    return std::visit([&](auto const& model) -> Components const& { return model.meas_model_comps(); }, _meas_model);
+  }
+  [[nodiscard]] UDT calculate_detection_probability(Vector<UDT> const& predictedMeasurement,
+                                                    Components const& comps,
+                                                    std::optional<Region> const& fov) const
+  {
+    return std::visit(
+        [&](auto const& model) { return model.getDetectionProbability(predictedMeasurement, comps, fov); },
+        _meas_model);
+  }
+  /// Calculates the clutter intensity for a given Measurement. Needed for converting the clutter rate in case
+  [[nodiscard]] UDT calculate_clutter_intensity(State<UDT> const& meas,
+                                                SensorInformation const& sensorInformation) const
+  {
+    return std::visit([&](auto const& model) { return model.getClutterIntensity(meas, sensorInformation); },
+                      _meas_model);
+  }
+  [[nodiscard]] std::optional<State<UDT>> create_state(State<UDT> const& meas, bool force = false) const
+  {
+    return std::visit([&](auto const& model) { return model.createState(meas, force); }, _meas_model);
+  }
+  TTBManager<UDT> const& _manager;
+  AllModels _meas_model;
 };
-/// Helper to read the default values from the params.
-BaseMeasurementModel::DefaultVal default_val(std::vector<DefaultValuesParams> const& params,
-                                             COMPONENT comp,
-                                             CLASS clazz);
-/// Helper to read the default values from the params.
-BaseMeasurementModel::DefaultVal default_val(DefaultValuesParams const& params, COMPONENT comp);
+
+static_assert(CPTSingleObjectMeasurementModel<SingleObjectMeasurementModel<double>, double>);
+static_assert(CPTSingleObjectMeasurementModel<SingleObjectMeasurementModel<AD>, AD>);
 
 }  // namespace ttb

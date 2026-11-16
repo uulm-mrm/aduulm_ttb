@@ -1,6 +1,20 @@
-thread_pool_size: 10
+thread_pool_size: 0
 version: 1.0.0
 show_gui: true
+ground_truth_metrics:
+  ospa:
+    evaluate: true
+    c: 10
+    p: 2
+  ospa2:
+    evaluate: true
+    c: 10
+    p: 2
+    sliding_window_length_ms: 1000
+  gospa:
+    evaluate: true
+    c: 10
+    p: 2
 
 meas_models:
   gaussian_models:
@@ -10,7 +24,7 @@ meas_models:
       can_init: true
       gating_prob: 0.99999
       clutter:
-        rate: 20
+        rate: 7
         rate_estimation:
           enable: true
           use_in_filter: false
@@ -81,7 +95,7 @@ state:
   estimation:
     type: BEST_STATE_MODEL
     transform_output_state: false
-    output_state_model: 4
+    output_state_model: 0
 
 
 
@@ -135,7 +149,6 @@ persistence_model:
 # LMB --------------
 lmb_distribution:
   update_method: GLMB
-  use_grouping: true
   post_process_prediction:
     enable: true
     max_tracks: 1000          # only keep max_tracks
@@ -151,6 +164,7 @@ lmb_distribution:
 
 glmb_distribution:
   do_profiling: false
+  use_grouping: true
   post_process_prediction:
     enable: false
   post_process_update:
@@ -158,9 +172,9 @@ glmb_distribution:
   update:
     joint_prediction_and_update: true
     assignment_method: MURTY
-    max_total_number_update_hypotheses: 1000      #
+    max_total_number_update_hypotheses: 10000      #
     num_update_hypotheses:
-      equal_allocation_share_ratio: 1
+      equal_allocation_share_ratio: 0.1
       max_update_hypotheses: 5
     gibbs_sampling:
       max_trials_factor: 5
@@ -168,17 +182,6 @@ glmb_distribution:
   extraction:
     type: CARDINALITY #Best Hypothesis #Existence Probability  # Cardinality
     threshold: 0.3
-  lmb_2_glmb_conversion:
-    type: ALL  # K_BEST  # ALL
-    all:
-      num_track_limit: 5
-      fallback_type: K_BEST
-    sampling:
-      max_number_hypotheses: 1000             # Max Number of created Hypotheses
-      percentage_of_weight_hypotheses: 0.9    # Percentage of all possible Hypotheses weights (of 1)
-      max_num_tries: 10000
-    kBest:
-      max_number_hypotheses: 500
 
 
 

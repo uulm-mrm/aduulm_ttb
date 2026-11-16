@@ -4,6 +4,12 @@ from tracking_lib.utils import Detection
 from tracking_lib import _tracking_lib_python_api as _api
 import pathlib
 
+def target_pos(target, time):
+    created_path = target["path"]
+    mean = np.zeros((2))
+    mean[0] = created_path[0][time-target["birth_time"]]
+    mean[1] = created_path[1][time-target["birth_time"]]
+    return mean
 
 def get_pos_measurement_target(target, time, meas_pos_variance):
     created_path = target["path"]
@@ -21,14 +27,21 @@ def get_pos_measurements_sensor(targets, detection_prob, time, meas_pos_variance
         # print(f'target nmbr: {ctr}, birth_time: {target["birth_time"]}, last_alive_time: {target["last_alive_time"]}')
         # print(f'detection_prob: {detection_prob}, rnd_nmbr: {random_number}')
         ctr = ctr + 1
-        if target["birth_time"] <= time <= target["last_alive_time"] and random_number < detection_prob:
-            mean = get_pos_measurement_target(target, time, meas_pos_variance)
-            cov = np.zeros((len(mean), len(mean)))
-            cov[0,0] = meas_pos_variance
-            cov[1,1] = meas_pos_variance
-            class_prob = 0.95
-            meas = Detection(mean,cov,components,_api.ClassLabel.UNKNOWN,class_prob)
-            meas_list.append(meas)
+        if target["birth_time"] <= time <= target["last_alive_time"]:
+            gt_target_pos = target_pos(target, time)
+            try:
+                p_D = detection_prob(gt_target_pos)
+            except:
+                p_D = detection_prob
+            random_number = np.random.uniform(0,1)
+            if random_number < p_D:
+                mean = get_pos_measurement_target(target, time, meas_pos_variance)
+                cov = np.zeros((len(mean), len(mean)))
+                cov[0,0] = meas_pos_variance
+                cov[1,1] = meas_pos_variance
+                class_prob = 0.95
+                meas = Detection(mean,cov,components,_api.ClassLabel.UNKNOWN,class_prob)
+                meas_list.append(meas)
     return meas_list
 
 def get_clutter(region_x, region_y, diff_x, diff_y):
@@ -41,7 +54,6 @@ def get_pos_clutter_measurements_sensor(scenario,clutter_rate, meas_pos_variance
     meas_list = []
 
     if clutter_rate == 0:
-        print("No clutter measurements are created!")
         return meas_list
 
     num_clutter = np.random.poisson(clutter_rate)
@@ -63,21 +75,15 @@ def get_pos_clutter_measurements_sensor(scenario,clutter_rate, meas_pos_variance
     return meas_list
     
 
-def get_pos_measurements(scenario, num_sensors, detection_prob, clutter_rate, time, meas_pos_variance, components_sensors):
+def get_pos_measurements(scenario, num_sensors, types, detection_probs, clutter_rates, time, meas_pos_variances, components_sensors):
     Z_sensors = []
     for s in range(0,num_sensors):
-        if False and s==0 and 50<=time<=420:
-            meas_target = get_pos_measurements_sensor(scenario["targets"], 0.7*detection_prob, time, meas_pos_variance, components_sensors[s])
-        elif False and s==1 and 50<=time<=390:
-            meas_target = get_pos_measurements_sensor(scenario["targets"], 0.5*detection_prob, time, meas_pos_variance, components_sensors[s])
+        if "detection" not in scenario:
+            meas_target = get_pos_measurements_sensor(scenario["targets"], detection_probs[s], time, meas_pos_variances[s], components_sensors[s])
+            meas_clutter = get_pos_clutter_measurements_sensor(scenario, clutter_rates[s], meas_pos_variances[s], components_sensors[s])
         else:
-            meas_target = get_pos_measurements_sensor(scenario["targets"], detection_prob, time, meas_pos_variance, components_sensors[s])
-        if False and s==1 and 200<=time<=600:
-            meas_clutter = get_pos_clutter_measurements_sensor(scenario,clutter_rate*7, meas_pos_variance, components_sensors[s])
-        elif False and s==0 and 200<=time<=700:
-            meas_clutter = get_pos_clutter_measurements_sensor(scenario,clutter_rate*6, meas_pos_variance, components_sensors[s])
-        else:
-            meas_clutter = get_pos_clutter_measurements_sensor(scenario,clutter_rate, meas_pos_variance, components_sensors[s])
+            meas_target = get_pos_measurements_sensor(scenario["targets"], lambda target: scenario["detection"](s, time, target), time, meas_pos_variances[s], components_sensors[s])
+            meas_clutter = get_pos_clutter_measurements_sensor(scenario, scenario["clutter"](s, time), meas_pos_variances[s], components_sensors[s])
         joint_measurement = meas_target + meas_clutter
         Z_sensor = dict(id=s,measurements = joint_measurement)
         Z_sensors.append(Z_sensor)
@@ -111,10 +117,9 @@ def plot_measurements_of_sensor(Z, sensor_id, save_plot, save_path, fov):
     # plt.show()
 
 
-def get_measurements(scenario, num_sensors, detection_prob, clutter_rate, type, meas_pos_variance, components_sensors):
+def get_measurements(scenario, num_sensors, detection_prob, clutter_rate, types, meas_pos_variance, components_sensors):
     Z = []
     for time in range(0,scenario["total_sim_time"]):
-        if type == 1:
-            Z_sensors = get_pos_measurements(scenario, num_sensors, detection_prob, clutter_rate, time, meas_pos_variance, components_sensors)
-            Z.append(Z_sensors)
+        Z_sensors = get_pos_measurements(scenario, num_sensors, types, detection_prob, clutter_rate, time, meas_pos_variance, components_sensors)
+        Z.append(Z_sensors)
     return Z

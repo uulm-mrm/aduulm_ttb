@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.5 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.22 FATAL_ERROR)
 project(tracking_lib)
 
 find_package(aduulm_cmake_tools)
@@ -13,6 +13,8 @@ find_package(minimal_latency_buffer)
 if (NOT ${minimal_latency_buffer_FOUND})
     MESSAGE(FATAL_ERROR "minimal_latency_buffer not found. Clone this repo into the same level as the tracking repo.")
 endif ()
+find_package(subjective_logic_lib)
+
 get_version_string_from_package_xml(.)
 show_build_info("library")
 
@@ -22,6 +24,10 @@ endif ()
 # Dependencies included in docker
 find_package(Eigen3 REQUIRED)
 add_compile_definitions(EIGEN_DONT_PARALLELIZE)
+add_compile_definitions(EIGEN_MAX_ALIGN_BYTES=0)
+add_compile_definitions(EIGEN_MAX_STATIC_ALIGN_BYTES=0)
+add_compile_definitions(EIGEN_MALLOC_ALREADY_ALIGNED=0)
+
 find_package(Boost REQUIRED)
 find_package(figcone REQUIRED)
 find_package(Tracy REQUIRED)
@@ -36,17 +42,34 @@ else ()
     MESSAGE("Tracy Disabled")
 endif ()
 
+set(HPX_WITH_STACKTRACES ON CACHE BOOL "Disable HPX stacktraces")
+set(HPX_WITH_TESTS OFF CACHE BOOL "" FORCE)
+set(HPX_WITH_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(HPX_WITH_DOCUMENTATION OFF CACHE BOOL "" FORCE)
+set(HPX_WITH_NETWORKING OFF CACHE BOOL "" FORCE)
+set(HPX_WITH_MALLOC "jemalloc" CACHE STRING "" FORCE)
+set(HPX_WITH_PKGCONFIG OFF CACHE BOOL "" FORCE)
+set(HPX_TRACY_WITH_TRACY OFF CACHE BOOL "" FORCE)
+set(HPX_WITH_FETCH_ASIO ON CACHE BOOL "" FORCE)
+
+add_subdirectory(third_party/hpx SYSTEM)
+
+add_subdirectory(third_party/xad SYSTEM)
+find_package(xad)
+
 set(sources
         src/BirthModels/BaseBirthModel.cpp
         src/BirthModels/DynamicBirthModel.cpp
         src/BirthModels/StaticBirthModel.cpp
+        src/BirthModels/ROIBirthModel.cpp
         ################################################################################################################
         src/Classification/MeasClassification.cpp
         src/Classification/StateClassification.cpp
         ################################################################################################################
-        src/Distributions/BaseDistribution.cpp
-        src/Distributions/GaussianDistribution.cpp
-        src/Distributions/MixtureDistribution.cpp
+        src/DataContainer/Database.cpp
+        ################################################################################################################
+        src/DataContainer/DataSourceContainer.cpp
+        ################################################################################################################
         src/Distributions/PoissonDistribution.cpp
         src/Distributions/GammaDistribution.cpp
         src/Distributions/DirichletDistribution.cpp
@@ -54,47 +77,48 @@ set(sources
         src/Trackers/NO_Tracker.cpp
         src/Trackers/NN_Tracker.cpp
         src/Trackers/GNN_Tracker.cpp
-        src/Trackers/GLMB_IC_Tracker.cpp
-        src/Trackers/LMB_IC_Tracker.cpp
-        src/Trackers/LMB_FPM_Tracker.cpp
         src/Trackers/Id_Tracker.cpp
-        src/Trackers/PHD_Tracker.cpp
+        src/Trackers/Tracker.cpp
+        src/Trackers/Nothing_Tracker.cpp
         ################################################################################################################
         src/Graph/GraphImpl.cpp
         src/Graph/GeneralizedKBestSelectionAlgorithm.cpp
         ################################################################################################################
+        src/Map/Map.cpp
+        ################################################################################################################
         src/MeasurementModels/BaseMeasurementModel.cpp
         src/MeasurementModels/GaussianMeasurementModel.cpp
         ################################################################################################################
-        src/Measurements/Measurement.cpp
-        src/Measurements/MeasurementContainer.cpp
         src/Measurements/SensorInformation.cpp
         ################################################################################################################
         src/Misc/Numeric.cpp
+        src/Misc/Assignments.cpp
         src/Misc/AngleNormalization.cpp
         src/Misc/GibbsSampler.cpp
+        src/Misc/Ospa.cpp
         src/Misc/Grouping.cpp
         src/Misc/HungarianMethod.cpp
         src/Misc/MurtyAlgorithm.cpp
         src/Misc/SeparatingAxisTest.cpp
+        src/Misc/Profiler.cpp
         src/Misc/ProportionalAllocation.cpp
         src/Misc/logger_setup.cpp
+        src/Misc/Region.cpp
         ################################################################################################################
         src/MultiObjectStateDistributions/GLMBDistribution.cpp
         src/MultiObjectStateDistributions/Hypothesis.cpp
         src/MultiObjectStateDistributions/LMBDistribution.cpp
-        src/MultiObjectStateDistributions/PHDDistribution.cpp
-        ################################################################################################################
-        src/OcclusionModels/NoOcclusionModel.cpp
+        src/MultiObjectStateDistributions/PoissonPointProcess.cpp
+        src/MultiObjectStateDistributions/MBMDistribution.cpp
+        src/MultiObjectStateDistributions/PMBMDistribution.cpp
         ################################################################################################################
         src/PersistenceModels/ConstantPersistenceModel.cpp
+        src/PersistenceModels/ROIPersistenceModel.cpp
         ################################################################################################################
         src/SelfAssessment/SelfAssessment.cpp
         ################################################################################################################
         src/States/EgoMotionDistribution.cpp
         src/States/State.cpp
-        src/States/Innovation.cpp
-        src/States/StateContainer.cpp
         ################################################################################################################
         src/StateModels/BaseStateModel.cpp
         src/StateModels/ISCATRStateModel.cpp
@@ -103,14 +127,12 @@ set(sources
         src/StateModels/CTRAStateModel.cpp
         src/StateModels/CTRVStateModel.cpp
         src/StateModels/CVStateModel.cpp
-        src/StateModels/LinearStateModel.cpp
-        src/StateModels/NonLinearStateModel.cpp
         src/StateModels/CTP.cpp
+        src/StateModels/PredictionInformation.cpp
         ################################################################################################################
         src/StateTransition/MarkovTransition.cpp
         ################################################################################################################
         src/Transformations/Transformations.cpp
-        src/Transformations/TransformReferencePoint.cpp
         ################################################################################################################
         src/TTBManager/TTBManager.cpp
         src/TTBManager/Visualization.cpp
@@ -118,10 +140,8 @@ set(sources
         src/TTBTypes/TTBTypes.cpp
         src/TTBTypes/Components.cpp
         ################################################################################################################
-        src/TTTFilters/EvalTTTFilter.cpp
         src/TTTFilters/NoTTTFilter.cpp
         src/TTTFilters/TransTTTFilter.cpp
-        src/TTTFilters/TTTUncorrelatedTracks.cpp
         src/TTTFilters/TTTHelpers.cpp
 )
 
@@ -135,57 +155,96 @@ set(SHARE_INSTALL_DIR share/ CACHE STRING "Path to installed share directory")
 ## build c++ library
 add_library(${PROJECT_NAME} SHARED ${sources})
 add_library(${PROJECT_NAME}::${PROJECT_NAME} ALIAS ${PROJECT_NAME})
-target_compile_features(${PROJECT_NAME}
-        PUBLIC
-        cxx_std_23
-)
+target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_23)
+
+
 if (CMAKE_BUILD_TYPE MATCHES Release)
     MESSAGE("Compile with Release flags")
     target_compile_options(${PROJECT_NAME} PRIVATE
             -O3
-            -pthread
-            #                        -ftime-trace=/tmp  # clang
+            -g3
     )
 endif ()
 if (CMAKE_BUILD_TYPE MATCHES Debug)
     MESSAGE("Compile with Debug flags")
     target_compile_options(${PROJECT_NAME} PRIVATE
+            -O3
+            -g3
             -Wall
             -Wextra
+            -W
             -pedantic
-            -Wshadow
             -Wnon-virtual-dtor
             -Wduplicated-branches
             -Wpedantic
             -Wduplicated-cond
             -Wswitch#-enum
-            #                        -Wconversion               # aim to activate in future
-            #                        -Wfloat-equal              # aim to activate in future
-            -Werror
-            #                        -Wno-error=missing-field-initializers
-#                                    -fsanitize=address     # disabled because there seems to be an issue with ros2
-            -fsanitize=undefined
-            #                        -fsanitize=thread      # disabled because there is an issue with "unexpected memory mapping"
-            #                        -fsanitize=pointer-compare
-            #                        -fsanitize=pointer-subtract
-            -pthread
-            #                        -ftime-trace=/tmp  # clang
-    )
-    target_link_options(${PROJECT_NAME} PUBLIC
-#                                    -fsanitize=address
-            -fsanitize=undefined
-            #                        -fsanitize=thread
+            -Wcast-qual
+            -Wcast-align
+            -Wcast-function-type
+            -Wunused-function
+            -Wtype-limits
+            -Wuninitialized
+            -Wnonnull
+            -Waggressive-loop-optimizations
     )
 endif ()
 
+if (UBSAN MATCHES true)
+    MESSAGE("Compile with UB sanitizer")
+    if (NOT CMAKE_BUILD_TYPE MATCHES Debug)
+        MESSAGE(WARNING "Build type not debug")
+    endif ()
+    target_compile_options(${PROJECT_NAME} PRIVATE
+            -O3
+            -g3
+            -fsanitize=undefined
+    )
+    target_link_options(${PROJECT_NAME} PUBLIC
+            -fsanitize=undefined
+    )
+endif ()
+
+if (ASAN MATCHES true)
+    MESSAGE("Compile with ASAN")
+    if (NOT CMAKE_BUILD_TYPE MATCHES Debug)
+        MESSAGE(WARNING "Build type not debug")
+    endif ()
+    target_compile_options(${PROJECT_NAME} PRIVATE
+            -O3
+            -g3
+            -fsanitize=address
+
+    )
+    target_link_options(${PROJECT_NAME} PUBLIC
+            -fsanitize=address
+    )
+endif ()
+if (TSAN MATCHES true)
+    MESSAGE("Compile with TSAN")
+    if (NOT CMAKE_BUILD_TYPE MATCHES Debug)
+        MESSAGE(WARNING "Build type not debug")
+    endif ()
+    target_compile_options(${PROJECT_NAME} PRIVATE
+            -O3
+            -g3
+            -fsanitize=thread
+    )
+    target_link_options(${PROJECT_NAME} PUBLIC
+            -fsanitize=thread
+    )
+endif ()
+
+target_compile_options(${PROJECT_NAME} PRIVATE
+        -Wno-empty-body
+        -Wno-shadow
+        -Wfatal-errors
+        -Wno-interference-size
+)
 
 target_compile_definitions(${PROJECT_NAME} PUBLIC "-D${package_name}_VERSION=\"${package_version}\"")
 target_compile_definitions(${PROJECT_NAME} PRIVATE -DROS_PACKAGE_NAME="${PROJECT_NAME}")
 
-
-#############
-## Linking ##
-#############
 target_include_directories(${PROJECT_NAME}
         SYSTEM INTERFACE
         $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
@@ -197,13 +256,16 @@ target_include_directories(${PROJECT_NAME}
         $<INSTALL_INTERFACE:${INCLUDE_INSTALL_DIR}>
 )
 
-
 target_link_libraries(${PROJECT_NAME}
         PUBLIC
         Eigen3::Eigen
         aduulm_logger_lib::aduulm_logger_lib
         minimal_latency_buffer::minimal_latency_buffer
+        subjective_logic_lib::subjective_logic_lib
+        -lstdc++exp
         PRIVATE
+        HPX::hpx
+        XAD::xad
         figcone::figcone
         Boost::boost
         implot::implot
@@ -211,10 +273,12 @@ target_link_libraries(${PROJECT_NAME}
         imgui::imgui_impl_opengl3
 )
 
+
+
 if (TRACY_ENABLE MATCHES ON)
     target_link_libraries(${PROJECT_NAME}
-        PRIVATE
-        Tracy::TracyClient
+            PRIVATE
+            Tracy::TracyClient
     )
 endif ()
 

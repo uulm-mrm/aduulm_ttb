@@ -1,6 +1,20 @@
 thread_pool_size: 20
 show_gui: true
 version: 1.0.0
+ground_truth_metrics:
+  ospa:
+    evaluate: true
+    c: 10
+    p: 2
+  ospa2:
+    evaluate: true
+    c: 10
+    p: 2
+    sliding_window_length_ms: 1000
+  gospa:
+    evaluate: true
+    c: 10
+    p: 2
 
 ##### Measurement Models ###############################################################################################
 meas_models:
@@ -16,7 +30,7 @@ meas_models:
           enable: true
           use_in_filter: false
       detection:
-        prob: 0.8
+        prob: 0.9
         prob_min: 0.01
         prob_estimation:
           enable: true
@@ -176,7 +190,7 @@ state:
   estimation:
     type: BEST_STATE_MODEL
     transform_output_state: false
-    output_state_model: 4
+    output_state_model: 0
 
 
 
@@ -255,27 +269,32 @@ persistence_model:
 
 glmb_distribution:
   do_profiling: false
+  use_grouping: true
   post_process_prediction:
     enable: true
     pruning_threshold: 1e-5
-    max_hypotheses: 300
+    max_hypotheses: 1000
   post_process_update:
     enable: true
-    pruning_threshold: 1e-5
-    max_hypotheses: 1000
+    method: STANDARD
+    standard_pp:
+      pruning_threshold: 1e-5
+      max_hypotheses: 1000
   update:
     joint_prediction_and_update: false
     assignment_method: MURTY
     max_total_number_update_hypotheses: 1000      #
     num_update_hypotheses:
-      equal_allocation_share_ratio: 1
-      max_update_hypotheses: 5
+      equal_allocation_share_ratio: 0.2
+      max_update_hypotheses: 500
     gibbs_sampling:
       max_trials_factor: 5
       abort_after_ntimes_no_new_sol: 100
   extraction:
     type: CARDINALITY
     threshold: 0.3
+  add_tracks:
+    max_number_hypotheses: 500
 
 
 filter:

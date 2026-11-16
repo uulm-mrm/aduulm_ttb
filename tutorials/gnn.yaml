@@ -177,7 +177,7 @@ state:
   estimation:
     type: BEST_STATE_MODEL
     transform_output_state: false
-    output_state_model: 4
+    output_state_model: 0
   stage_management:
     use_history_based_stage_logic: true
     use_score_based_stage_logic: false
@@ -321,32 +321,10 @@ birth_model:
 
 
 
-#### Persistence #######################################################################################################
 persistence_model:
   type: CONSTANT
   constant:
     persistence_prob: 0.99
-
-##### MO State Dist #####################################################################################################
-## LMB --------------
-#lmb_distribution:
-#  update_method: LBP
-#  post_process_prediction:
-#    enable: false
-#    max_tracks: 1000          # only keep max_tracks
-#    pruning_threshold: 1e-5   # only keep tracks with existence probability higher of
-#    max_last_assoc_duration_ms: 5000   # remove all tracks, with greater last associated measurement duration
-#  post_process_update:
-#    enable: false
-#    max_tracks: 1000000000
-#    pruning_threshold: 1e-5
-#  extraction:
-#    type: EXISTENCE_PROBABILITY
-#    threshold: 0.5
-#  loopy_belief_propagation:
-#    max_iterations: 100
-#    tol: 1e-7
-
 
 filter:
   type: GNN

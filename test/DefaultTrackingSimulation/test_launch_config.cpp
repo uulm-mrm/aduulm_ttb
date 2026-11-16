@@ -15,10 +15,18 @@ TEST(DefaultTrackingSimulation, ReadConfig)
   ASSERT_TRUE(true);
 }
 
-TEST(DefaultTrackingSimulation, CreateTTBManager)
+TEST(DefaultTrackingSimulation, CreateTTBManager_double)
 {
   auto paramReader = figcone::ConfigReader{};
   auto params = paramReader.readYamlFile<ttb::Params>(file);
-  ttb::TTBManager manager(std::move(params));
+  ttb::TTBManager<double> manager(std::move(params));
+  ASSERT_TRUE(true);
+}
+
+TEST(DefaultTrackingSimulation, CreateTTBManager_ad)
+{
+  auto paramReader = figcone::ConfigReader{};
+  auto params = paramReader.readYamlFile<ttb::Params>(file);
+  ttb::TTBManager<ttb::AD> manager(std::move(params));
   ASSERT_TRUE(true);
 }

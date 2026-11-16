@@ -6,14 +6,18 @@
 namespace ttb
 {
 
-MarkovTransition::MarkovTransition(TTBManager* manager) : _manager{ manager }
+template class MarkovTransition<double>;
+template class MarkovTransition<AD>;
+
+template <class UDT>
+MarkovTransition<UDT>::MarkovTransition(TTBManager<UDT> const& manager) : _manager{ manager }
 {
-  if (_manager->params().state.multi_model.enable_markov_transition)
+  if (_manager.params()->state.multi_model.enable_markov_transition)
   {
-    for (MarkovTransitionParams const& transitionParams : _manager->params().state.multi_model.markov_transition)
+    for (MarkovTransitionParams const& transitionParams : _manager.params()->state.multi_model.markov_transition)
     {
       if (not transitionParams.transition_matrix.rowwise().sum().isApprox(
-              Vector::Ones(_manager->params().state.multi_model.use_state_models.size())))
+              Vector<double>::Ones(_manager.params()->state.multi_model.use_state_models.size())))
       {
         LOG_FATAL("Transition Matrix is either not valid (columns for every row must sum to 1) or #rows does not fit "
                   "the "
@@ -25,14 +29,15 @@ MarkovTransition::MarkovTransition(TTBManager* manager) : _manager{ manager }
   }
 }
 
-Matrix MarkovTransition::transitionMatrix(State const& state) const
+template <class UDT>
+Matrix<double> MarkovTransition<UDT>::transitionMatrix(State<UDT> const& state) const
 {
-  if (not _manager->params().state.multi_model.enable_markov_transition)
+  if (not _manager.params()->state.multi_model.enable_markov_transition)
   {
-    return Matrix::Identity(state._state_dist.size(), state._state_dist.size());
+    return Matrix<double>::Identity(state._state_dist.size(), state._state_dist.size());
   }
   CLASS const type{ state._classification.getEstimate() };
-  for (MarkovTransitionParams const& transitionParams : _manager->params().state.multi_model.markov_transition)
+  for (MarkovTransitionParams const& transitionParams : _manager.params()->state.multi_model.markov_transition)
   {
     if (std::ranges::find(transitionParams.type, type) != transitionParams.type.end())
     {

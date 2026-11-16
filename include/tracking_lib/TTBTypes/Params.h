@@ -1,15 +1,16 @@
 #pragma once
 #include "tracking_lib/TTBTypes/TTBTypes.h"
 #include <figcone/configreader.h>
-
-/// ALL! parameters for the whole library are defined here.
+/// All parameters for the whole library are defined and should be DOCUMENTED here
+///
 /// The structure of the params must reflect the structure of the yaml where they are specified.
 /// The top level struct is defined at the bottom and called Params ....
+/// The configuration file is automatically read in using figcone and must EXACTLY match the definitions here
 
 namespace ttb
 {
 
-auto constexpr param_version{ "1.0.0" };
+auto constexpr param_version{ "1.0.0.0" };
 
 struct ClutterEstimationParams
 {
@@ -66,9 +67,11 @@ struct DetectionParams
   double prob = 0.6;       ///< the (default) detection prob (inside the fov)
   double prob_min = 0.01;  ///< the detection prob used when the (default) prob does not apply
   DetectionProbEstimationParams prob_estimation{};
+  bool learn_model = false;
   using traits = figcone::FieldTraits<figcone::OptionalField<&DetectionParams::prob>,
                                       figcone::OptionalField<&DetectionParams::prob_min>,
-                                      figcone::OptionalField<&DetectionParams::prob_estimation>>;
+                                      figcone::OptionalField<&DetectionParams::prob_estimation>,
+                                      figcone::OptionalField<&DetectionParams::learn_model>>;
 };
 
 struct OcclusionModelParams
@@ -126,10 +129,49 @@ struct DefaultValuesParams
                            figcone::OptionalField<&DefaultValuesParams::var>>;
 };
 
+struct DefaultVal
+{
+  std::optional<double> mean;
+  std::optional<double> var;
+};
+
+inline DefaultVal default_val(DefaultValuesParams const& params, COMPONENT comp)
+{
+  auto const mean = [&] -> std::optional<double> {
+    auto const mean_it = params.mean.find(to_string(comp));
+    if (mean_it == params.mean.end())
+    {
+      return std::nullopt;
+    }
+    return mean_it->second;
+  }();
+  auto const var = [&] -> std::optional<double> {
+    auto const var_it = params.var.find(to_string(comp));
+    if (var_it == params.var.end())
+    {
+      return std::nullopt;
+    }
+    return var_it->second;
+  }();
+  return DefaultVal{ .mean = mean, .var = var };
+}
+
+inline DefaultVal default_val(std::vector<DefaultValuesParams> const& params, COMPONENT comp, CLASS clazz)
+{
+  const auto it = std::ranges::find_if(params, [&](DefaultValuesParams const& class_vars) {
+    return std::ranges::find(class_vars.type, clazz) != class_vars.type.end();
+  });
+  if (it == params.end())
+  {
+    return {};
+  }
+  return default_val(*it, comp);
+}
+
 /// The Parameters used in the GaussianMeasurementModel
 struct GaussianMeasurementModelParams
 {
-  MeasModelId id;                     ///< the unique ID of this Model
+  SourceId id;                        ///< the unique ID of this Model
   bool enable = true;                 ///< use input form this measurement model or not?
   std::vector<COMPONENT> components;  ///< the components this measurement Model considers
   bool filter_outside_fov = true;     ///< filter measurements which are outside the fov of this sensor
@@ -212,11 +254,17 @@ struct MeasurementModelsParams
 
 struct ClassificationParams
 {
-  std::vector<MeasModelId> use_meas_models{};  ///< Use only this Measurement Models for classification
-  std::vector<CLASS> classes{};    ///< Use this Classes, you can disable state classification by setting the classes to
-                                   ///< NOT_CLASSIFIED
-  bool use_union_classes = false;  ///< unify the measured classes of some input
+  std::vector<SourceId> use_meas_models{};  ///< Use only this Measurement Models for classification
+  bool use_union_classes = false;           ///< unify the measured classes of some input
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#pragma GCC diagnostic push
+  std::vector<CLASS> classes{ CLASS::NOT_CLASSIFIED };  ///< Use this Classes, you can disable state classification by
+#pragma GCC diagnostic pop
+  ///< setting the classes to NOT_CLASSIFIED
   double discount_factor_prediction = 0.98;
+  using traits = figcone::FieldTraits<figcone::OptionalField<&ClassificationParams::use_meas_models>,
+                                      figcone::OptionalField<&ClassificationParams::use_union_classes>,
+                                      figcone::OptionalField<&ClassificationParams::discount_factor_prediction>>;
 };
 
 struct EstimationParams
@@ -232,13 +280,13 @@ struct EstimationParams
 struct MarkovTransitionParams
 {
   std::vector<CLASS> type;
-  Matrix transition_matrix;
+  Matrix<double> transition_matrix;
 };
 
 struct MultiModelParams
 {
   std::vector<StateModelId> use_state_models;
-  std::vector<double> birth_weights{};
+  std::vector<double> birth_weights{ { 1.0 } };
   bool enable_markov_transition = false;
   std::vector<MarkovTransitionParams> markov_transition = {};
   using traits = figcone::FieldTraits<figcone::OptionalField<&MultiModelParams::enable_markov_transition>,
@@ -288,13 +336,29 @@ struct StageManagementParams
 
 struct StateParams
 {
-  MultiModelParams multi_model;
-  ClassificationParams classification;
+  MultiModelParams multi_model{};
+  ClassificationParams classification{};
   EstimationParams estimation;
-  StageManagementParams stage_management;
+  StageManagementParams stage_management{};
   using traits = figcone::FieldTraits<figcone::OptionalField<&StateParams::multi_model>,
                                       figcone::OptionalField<&StateParams::classification>,
                                       figcone::OptionalField<&StateParams::stage_management>>;
+};
+
+struct StateParamsValidator
+{
+  void operator()(StateParams const& params)
+  {
+    if (std::ranges::find(params.multi_model.use_state_models, params.estimation.output_state_model) ==
+        params.multi_model.use_state_models.end())
+    {
+      throw figcone::ValidationError(std::format("output_state_model {} is not in use_state_models {}. The "
+                                                 "output_state_model must be one "
+                                                 "of the use_state_models",
+                                                 params.estimation.output_state_model,
+                                                 params.multi_model.use_state_models));
+    }
+  }
 };
 
 struct DistributionPostProcessingParams
@@ -352,21 +416,33 @@ struct StateModelParams
                                       figcone::OptionalField<&StateModelParams::default_var>>;
 };
 
+struct BirthModelExistenceParams
+{
+  std::string source_id;
+  double existence_prob;
+};
+
 struct DynamicBirthModelParams
 {
-  double mean_num_birth = 10;         ///< mean number of birth tracks per time step
-  Probability birth_threshold = 0.1;  ///< Dynamic Model: If associationProb of Measurement < this threshold -> initiate
-                                      ///< new birth
+  double mean_num_birth = 10;                 ///< mean number of birth tracks per time step
+  Probability<double> birth_threshold = 0.1;  ///< Dynamic Model: If associationProb of Measurement < this threshold ->
+                                              ///< initiate new birth
   bool force_one_step_birth =
       true;  ///< force a one-step birth even if the transformation form measurement to state space fails
   bool use_default_values = false;  ///< use the class dependent variances below for birth tracks (and not from the
                                     ///< measurement/measurement model)
+  std::vector<BirthModelExistenceParams> meas_model_specific_existence_probs{};  ///< overwrite the
+                                                                                 ///< default_birth_existence_prob for
+                                                                                 ///< the given sources with the given
+                                                                                 ///< values
   std::vector<DefaultValuesParams> default_values = {};
-  using traits = figcone::FieldTraits<figcone::OptionalField<&DynamicBirthModelParams::mean_num_birth>,
-                                      figcone::OptionalField<&DynamicBirthModelParams::birth_threshold>,
-                                      figcone::OptionalField<&DynamicBirthModelParams::force_one_step_birth>,
-                                      figcone::OptionalField<&DynamicBirthModelParams::use_default_values>,
-                                      figcone::OptionalField<&DynamicBirthModelParams::default_values>>;
+  using traits =
+      figcone::FieldTraits<figcone::OptionalField<&DynamicBirthModelParams::mean_num_birth>,
+                           figcone::OptionalField<&DynamicBirthModelParams::birth_threshold>,
+                           figcone::OptionalField<&DynamicBirthModelParams::force_one_step_birth>,
+                           figcone::OptionalField<&DynamicBirthModelParams::use_default_values>,
+                           figcone::OptionalField<&DynamicBirthModelParams::meas_model_specific_existence_probs>,
+                           figcone::OptionalField<&DynamicBirthModelParams::default_values>>;
 };
 
 struct StaticBirthLocation
@@ -381,34 +457,56 @@ struct StaticBirthModelParams
   using traits = figcone::FieldTraits<figcone::CopyNodeListField<&StaticBirthModelParams::locations>>;
 };
 
+struct ROIBirthModelParams
+{
+  bool use_sensors_fov_instead = false;
+  double cov_scaling_factor = 1.0;
+  double confidence_prob = 0.99;
+  using traits = figcone::FieldTraits<figcone::OptionalField<&ROIBirthModelParams::use_sensors_fov_instead>,
+                                      figcone::OptionalField<&ROIBirthModelParams::cov_scaling_factor>,
+                                      figcone::OptionalField<&ROIBirthModelParams::confidence_prob>>;
+};
+
 struct BirthModelParams
 {
   BIRTH_MODEL_TYPE type = BIRTH_MODEL_TYPE::DYNAMIC;
   bool allow_overlapping = true;
   double min_mhd_4_overlapping_wo_extent = 1;  ///< If overlapping birth Tracks are not allowed but no extent is
   ///< estimated, ensure mhd distance > this param
-  Probability default_birth_existence_prob = 0.2;  ///< Default existence Probability of newly initiated tracks
+  Probability<double> default_birth_existence_prob = 0.2;  ///< Default existence Probability of newly initiated tracks
   DynamicBirthModelParams dynamic_model{};
   StaticBirthModelParams static_model{};
+  ROIBirthModelParams roi_model{};
   using traits = figcone::FieldTraits<figcone::OptionalField<&BirthModelParams::type>,
                                       figcone::OptionalField<&BirthModelParams::allow_overlapping>,
                                       figcone::OptionalField<&BirthModelParams::default_birth_existence_prob>,
                                       figcone::OptionalField<&BirthModelParams::dynamic_model>,
-                                      figcone::OptionalField<&BirthModelParams::static_model>>;
+                                      figcone::OptionalField<&BirthModelParams::static_model>,
+                                      figcone::OptionalField<&BirthModelParams::roi_model>>;
 };
 
 struct ConstantPersistenceModelParams
 {
-  Probability persistence_prob = 0.9;  ///< the existence probability of a track decreases per second
+  Probability<double> persistence_prob = 0.9;  ///< the existence probability of a track decreases per second
   using traits = figcone::FieldTraits<figcone::OptionalField<&ConstantPersistenceModelParams::persistence_prob>>;
+};
+
+struct ROIPersistenceModelParams
+{
+  Probability<double> inside_persistence_prob = 0.99;  ///< the existence probability of a track decreases per second
+  Probability<double> outside_persistence_prob = 0;    ///< the existence probability of a track decreases per second
+  using traits = figcone::FieldTraits<figcone::OptionalField<&ROIPersistenceModelParams::inside_persistence_prob>,
+                                      figcone::OptionalField<&ROIPersistenceModelParams::outside_persistence_prob>>;
 };
 
 struct PersistenceModelParams
 {
-  PERSISTENCE_MODEL_TYPE type = PERSISTENCE_MODEL_TYPE::CONSTANT;
+  PERSISTENCE_MODEL_TYPE type = PERSISTENCE_MODEL_TYPE::ROI;
   ConstantPersistenceModelParams constant{};
+  ROIPersistenceModelParams roi{};
   using traits = figcone::FieldTraits<figcone::OptionalField<&PersistenceModelParams::type>,
-                                      figcone::OptionalField<&PersistenceModelParams::constant>>;
+                                      figcone::OptionalField<&PersistenceModelParams::constant>,
+                                      figcone::OptionalField<&PersistenceModelParams::roi>>;
 };
 
 struct LMBDistributionPostProcessPrediction
@@ -457,42 +555,136 @@ struct LoopyBeliefProapagationParams
                                       figcone::OptionalField<&LoopyBeliefProapagationParams::tol>>;
 };
 
+struct PMFusionPoissonParams
+{
+  double equal_allocation_share_ratio = 0.0;
+
+  using traits = figcone::FieldTraits<figcone::OptionalField<&PMFusionPoissonParams::equal_allocation_share_ratio>>;
+};
+
+struct FPMFusionParams
+{
+  std::size_t num_components = 10;  // maximum number of fused state components calculated by fpm fusion
+  PM_MULTI_SENSOR_UPDATE_METHOD method =
+      PM_MULTI_SENSOR_UPDATE_METHOD::GENERALIZED_K_BEST;  // if true -> generalizedKBest algorithm is used, else
+                                                          // kBestSelection is used
+  PMFusionPoissonParams poisson_method{};
+  using traits = figcone::FieldTraits<figcone::OptionalField<&FPMFusionParams::num_components>,
+                                      figcone::OptionalField<&FPMFusionParams::method>,
+                                      figcone::OptionalField<&FPMFusionParams::poisson_method>>;
+};
+
+struct StandardPostProcessingParams
+{
+  double pruning_threshold = 1e-5;  ///< delete every hypothesis with weight < pruning_threshold
+  double prune_labels_existence_probability_threshold =
+      1e-3;                               ///< delete every label with existence probability < pruning_threshold
+  std::size_t max_hypotheses = 1000;      ///< keep at most the best max_hypotheses, delete the smaller ones
+  std::size_t max_states_per_label = 10;  ///< keep at most the max_states_per_label best states per label
+  bool limit_states_per_label = true;
+  using traits = figcone::FieldTraits<
+      figcone::OptionalField<&StandardPostProcessingParams::pruning_threshold>,
+      figcone::OptionalField<&StandardPostProcessingParams::prune_labels_existence_probability_threshold>,
+      figcone::OptionalField<&StandardPostProcessingParams::max_hypotheses>,
+      figcone::OptionalField<&StandardPostProcessingParams::max_states_per_label>,
+      figcone::OptionalField<&StandardPostProcessingParams::limit_states_per_label>>;
+};
+
+struct DissHerrmannPostProcessingParams
+{
+  std::size_t pruning_max_comps_retain = 300;
+  std::size_t pruning_min_comps_per_card = 10;
+  double pruning_min_comps_per_card_thresh = 1e-12;
+  double pruning_max_weight_ratio = 1e18;
+  bool pruning_alloc_min_comps_per_card_by_poisson = false;
+
+  using traits = figcone::FieldTraits<
+      figcone::OptionalField<&DissHerrmannPostProcessingParams::pruning_max_comps_retain>,
+      figcone::OptionalField<&DissHerrmannPostProcessingParams::pruning_min_comps_per_card>,
+      figcone::OptionalField<&DissHerrmannPostProcessingParams::pruning_min_comps_per_card_thresh>,
+      figcone::OptionalField<&DissHerrmannPostProcessingParams::pruning_max_weight_ratio>,
+      figcone::OptionalField<&DissHerrmannPostProcessingParams::pruning_alloc_min_comps_per_card_by_poisson>>;
+};
+
+struct GLMBDistributionPostProcessUpdate
+{
+  bool enable = true;  ///< enable post processing after a update step
+  GLMB_POST_PROCESSING_METHOD method =
+      GLMB_POST_PROCESSING_METHOD::STANDARD;  ///< method which should be used for post processing>
+  StandardPostProcessingParams standard_pp{};
+  DissHerrmannPostProcessingParams diss_herrmann_pp{};
+
+  using traits = figcone::FieldTraits<figcone::OptionalField<&GLMBDistributionPostProcessUpdate::method>,
+                                      figcone::OptionalField<&GLMBDistributionPostProcessUpdate::standard_pp>,
+                                      figcone::OptionalField<&GLMBDistributionPostProcessUpdate::diss_herrmann_pp>>;
+};
+
+struct PMFusionParams
+{
+  std::size_t num_components = 1000;  // maximum overall calculated fused hypotheses number
+  PM_MULTI_SENSOR_UPDATE_METHOD method =
+      PM_MULTI_SENSOR_UPDATE_METHOD::GENERALIZED_K_BEST;  // if true -> generalizedKBest algorithm is used, else
+                                                          // kBestSelection is used
+  PMFusionPoissonParams poisson_method{};
+  std::size_t max_num_state_components = 10;  // max number of fused state components in pm-lmb fusion!
+  GLMBDistributionPostProcessUpdate post_processing{};
+  using traits = figcone::FieldTraits<figcone::OptionalField<&PMFusionParams::num_components>,
+                                      figcone::OptionalField<&PMFusionParams::method>,
+                                      figcone::OptionalField<&PMFusionParams::poisson_method>,
+                                      figcone::OptionalField<&PMFusionParams::max_num_state_components>,
+                                      figcone::OptionalField<&PMFusionParams::post_processing>>;
+};
+
+struct PUFusionParams
+{
+  std::size_t num_components = 10;  // maximum number of fused state components calculated by fpm fusion
+  bool use_best_component =
+      true;  // if true -> only best component is used, otherwise all components are merged together
+  using traits = figcone::FieldTraits<figcone::OptionalField<&PUFusionParams::num_components>,
+                                      figcone::OptionalField<&PUFusionParams::use_best_component>>;
+};
+
+struct LMBMultiSensorParams
+{
+  LMB_MULTI_SENSOR_UPDATE_METHOD method = LMB_MULTI_SENSOR_UPDATE_METHOD::FPM;
+  FPMFusionParams fpm;
+  PUFusionParams pu;
+  using traits = figcone::FieldTraits<figcone::OptionalField<&LMBMultiSensorParams::method>,
+                                      figcone::OptionalField<&LMBMultiSensorParams::fpm>,
+                                      figcone::OptionalField<&LMBMultiSensorParams::pu>>;
+};
+
 struct LMBDistributionParams
 {
   LMB_UPDATE_METHOD update_method = LMB_UPDATE_METHOD::LBP;
-  bool use_grouping = false;
   bool calculate_single_sensor_group_updates_parallel =
       true;  ///< if thread_pool_size>0 and this is true, lmb groups are calculated parallel
   LMBDistributionPostProcessPrediction post_process_prediction{};
   LMBDistributionPostProcessUpdate post_process_update{};
+  LMBMultiSensorParams multi_sensor{};
   LMBDistributionExtraction extraction{};
   LoopyBeliefProapagationParams loopy_belief_propagation{};
   using traits = figcone::FieldTraits<
       figcone::OptionalField<&LMBDistributionParams::update_method>,
-      figcone::OptionalField<&LMBDistributionParams::use_grouping>,
       figcone::OptionalField<&LMBDistributionParams::calculate_single_sensor_group_updates_parallel>,
       figcone::OptionalField<&LMBDistributionParams::post_process_prediction>,
       figcone::OptionalField<&LMBDistributionParams::post_process_update>,
+      figcone::OptionalField<&LMBDistributionParams::multi_sensor>,
       figcone::OptionalField<&LMBDistributionParams::extraction>,
       figcone::OptionalField<&LMBDistributionParams::loopy_belief_propagation>>;
 };
 
 struct GLMBDistributionPostProcessPrediction
 {
-  bool enable = true;                ///< enable post processing after a prediction step
-  double pruning_threshold = 1e-5;   ///< delete every hypothesis with weight < pruning_threshold
-  std::size_t max_hypotheses = 1e4;  ///< keep at most the best max_hypotheses, delete the smaller ones
-  using traits = figcone::FieldTraits<figcone::OptionalField<&GLMBDistributionPostProcessPrediction::pruning_threshold>,
-                                      figcone::OptionalField<&GLMBDistributionPostProcessPrediction::max_hypotheses>>;
-};
-
-struct GLMBDistributionPostProcessUpdate
-{
-  bool enable = true;                ///< enable post processing after a update step
-  double pruning_threshold = 1e-5;   ///< delete every hypothesis with weight < pruning_threshold
-  std::size_t max_hypotheses = 1e4;  ///< keep at most the best max_hypotheses, delete the smaller ones
-  using traits = figcone::FieldTraits<figcone::OptionalField<&GLMBDistributionPostProcessUpdate::pruning_threshold>,
-                                      figcone::OptionalField<&GLMBDistributionPostProcessUpdate::max_hypotheses>>;
+  bool enable = true;               ///< enable post processing after a prediction step
+  double pruning_threshold = 1e-5;  ///< delete every hypothesis with weight < pruning_threshold
+  double prune_labels_existence_probability_threshold =
+      1e-3;                           ///< delete every label with existence probability < pruning_threshold
+  std::size_t max_hypotheses = 1000;  ///< keep at most the best max_hypotheses, delete the smaller ones
+  using traits = figcone::FieldTraits<
+      figcone::OptionalField<&GLMBDistributionPostProcessPrediction::pruning_threshold>,
+      figcone::OptionalField<&GLMBDistributionPostProcessPrediction::prune_labels_existence_probability_threshold>,
+      figcone::OptionalField<&GLMBDistributionPostProcessPrediction::max_hypotheses>>;
 };
 
 struct GLMBDistributionExtraction
@@ -501,30 +693,9 @@ struct GLMBDistributionExtraction
   double threshold;
 };
 
-struct AllParams
+struct GLMBDistributionAddTracksParams
 {
-  std::size_t num_track_limit;
-  LMB_2_GLMB_CONVERISON_TYPE fallback_type;
-};
-
-struct KBestParams
-{
-  std::size_t max_number_hypotheses;
-};
-
-struct SamplingParams
-{
-  std::size_t max_number_hypotheses;
-  double percentage_of_weight_hypotheses;
-  std::size_t max_num_tries;
-};
-
-struct LMB2GLMBConversion
-{
-  LMB_2_GLMB_CONVERISON_TYPE type;
-  AllParams all;
-  KBestParams kBest;
-  SamplingParams sampling;
+  std::size_t max_number_hypotheses = 500;
 };
 
 struct GibbsSamplingParams
@@ -537,9 +708,11 @@ struct GibbsSamplingParams
 
 struct UpdateHypsParams
 {
-  double equal_allocation_share_ratio;  ///< Todo: what is this?
+  double equal_allocation_share_ratio;  ///< do not allocate this proportion of new hypothesis based on the weight but
+                                        ///< uniformly across all old hypotheses
   std::size_t max_update_hypotheses;    ///< Every existing hypotheses can maximal generate *this number of update
                                         ///< hypotheses (used if joint_prediction and update==true)
+                                        ///< anymore?!-> remove??
 };
 
 struct GLMBUpdateParams
@@ -552,19 +725,56 @@ struct GLMBUpdateParams
   UpdateHypsParams num_update_hypotheses;
 };
 
+struct GLMBMultiSensorParams
+{
+  GLMB_MULTI_SENSOR_UPDATE_METHOD method = GLMB_MULTI_SENSOR_UPDATE_METHOD::MS;
+  PMFusionParams pm;
+  using traits = figcone::FieldTraits<figcone::OptionalField<&GLMBMultiSensorParams::method>,
+                                      figcone::OptionalField<&GLMBMultiSensorParams::pm>>;
+};
+
+struct SocialForceInteractionPrediction
+{
+  bool enable = false;
+  std::size_t horizon_ms = 1000;  /// check interaction at this prediction horizon
+  double amplifier = 1;           // [N/kg]
+  double sensitivity = 1;         // [m]
+  using traits = figcone::FieldTraits<figcone::OptionalField<&SocialForceInteractionPrediction::enable>,
+                                      figcone::OptionalField<&SocialForceInteractionPrediction::horizon_ms>,
+                                      figcone::OptionalField<&SocialForceInteractionPrediction::amplifier>,
+                                      figcone::OptionalField<&SocialForceInteractionPrediction::sensitivity>>;
+};
+
+struct NonOverlappingParams
+{
+  bool enabled = false;
+  std::size_t horizon_ms = 1000;    // T: look-ahead horizon [s]
+  double object_radius_m = 1.0;     // r: interaction radius [m]
+  double separation_sigma_m = 0.5;  // sigma_d: softening width [m]
+};
+
 struct GLMBDistributionParams
 {
   bool do_profiling = false;
+  bool use_grouping = true;
   GLMBDistributionPostProcessPrediction post_process_prediction;
   GLMBDistributionPostProcessUpdate post_process_update;
+  NonOverlappingParams non_overlapping_update;
+  SocialForceInteractionPrediction social_force_interaction_prediction;
+  GLMBMultiSensorParams multi_sensor;
   GLMBUpdateParams update;
   GLMBDistributionExtraction extraction;
-  LMB2GLMBConversion lmb_2_glmb_conversion;
-  using traits = figcone::FieldTraits<figcone::OptionalField<&GLMBDistributionParams::do_profiling>,
-                                      figcone::OptionalField<&GLMBDistributionParams::post_process_prediction>,
-                                      figcone::OptionalField<&GLMBDistributionParams::post_process_update>,
-                                      figcone::OptionalField<&GLMBDistributionParams::extraction>,
-                                      figcone::OptionalField<&GLMBDistributionParams::lmb_2_glmb_conversion>>;
+  GLMBDistributionAddTracksParams add_tracks;
+  using traits =
+      figcone::FieldTraits<figcone::OptionalField<&GLMBDistributionParams::do_profiling>,
+                           figcone::OptionalField<&GLMBDistributionParams::use_grouping>,
+                           figcone::OptionalField<&GLMBDistributionParams::post_process_prediction>,
+                           figcone::OptionalField<&GLMBDistributionParams::post_process_update>,
+                           figcone::OptionalField<&GLMBDistributionParams::non_overlapping_update>,
+                           figcone::OptionalField<&GLMBDistributionParams::social_force_interaction_prediction>,
+                           figcone::OptionalField<&GLMBDistributionParams::multi_sensor>,
+                           figcone::OptionalField<&GLMBDistributionParams::extraction>,
+                           figcone::OptionalField<&GLMBDistributionParams::add_tracks>>;
 };
 
 struct PHDDistributionPostProcessPredictionParams
@@ -609,11 +819,47 @@ struct PHDDistributionParams
                                       figcone::OptionalField<&PHDDistributionParams::update>>;
 };
 
+struct PPPDistributionParams
+{
+  double pruning_threshold = 1e-5;
+  double birth_weight = 0.005;
+  using traits = figcone::FieldTraits<figcone::OptionalField<&PPPDistributionParams::pruning_threshold>,
+                                      figcone::OptionalField<&PPPDistributionParams::birth_weight>>;
+};
+
+struct MBMDistributionParams
+{
+  double pruning_threshold_bernoulli = 1e-5;
+  double recycle_threshold_bernoulli = 1e-2;
+  bool enable_recycling = true;
+  double pruning_threshold_hypotheses = 1e-5;
+  std::size_t max_number_hypotheses = 10;
+  GLMB_ASSIGNMENT_METHOD assignment_method;  ///< how to perform the MBM update
+  bool enable_projection = false;
+  using traits = figcone::FieldTraits<figcone::OptionalField<&MBMDistributionParams::max_number_hypotheses>,
+                                      figcone::OptionalField<&MBMDistributionParams::pruning_threshold_bernoulli>,
+                                      figcone::OptionalField<&MBMDistributionParams::recycle_threshold_bernoulli>,
+                                      figcone::OptionalField<&MBMDistributionParams::enable_recycling>,
+                                      figcone::OptionalField<&MBMDistributionParams::pruning_threshold_hypotheses>,
+                                      figcone::OptionalField<&MBMDistributionParams::assignment_method>,
+                                      figcone::OptionalField<&MBMDistributionParams::enable_projection>>;
+};
+
+struct PMBMDistributionParams
+{
+  double estimation_threshold = 0.5;
+  PPPDistributionParams ppp{};
+  MBMDistributionParams mbm{};
+  using traits = figcone::FieldTraits<figcone::OptionalField<&PMBMDistributionParams::estimation_threshold>,
+                                      figcone::OptionalField<&PMBMDistributionParams::mbm>,
+                                      figcone::OptionalField<&PMBMDistributionParams::ppp>>;
+};
+
 struct BufferParams
 {
-  std::size_t max_wait_duration_ms = 500;      ///< maximal duration we wait for an expected measurement
-  double max_wait_duration_quantile = 0.9999;  ///< duration we wait for an expected measurement based on an estimation
-  std::size_t max_delta_ms = 50;               ///< max time difference of measurements in one batch
+  std::size_t max_wait_duration_ms = 500;   ///< maximal duration we wait for an expected measurement
+  double max_wait_duration_quantile = 0.9;  ///< duration we wait for an expected measurement based on an estimation
+  std::size_t max_delta_ms = 10;            ///< max time difference of measurements in one batch
   using traits = figcone::FieldTraits<figcone::OptionalField<&BufferParams::max_wait_duration_ms>,
                                       figcone::OptionalField<&BufferParams::max_wait_duration_quantile>,
                                       figcone::OptionalField<&BufferParams::max_delta_ms>>;
@@ -621,33 +867,115 @@ struct BufferParams
 
 struct ClutterRateEstimation
 {
-  double static_discount = 0.99;
-  double dynamic_discount_alpha = 0.5;
-  double dynamic_discount_min = 0.3;
-  using traits = figcone::FieldTraits<figcone::OptionalField<&ClutterRateEstimation::static_discount>,
-                                      figcone::OptionalField<&ClutterRateEstimation::dynamic_discount_alpha>,
-                                      figcone::OptionalField<&ClutterRateEstimation::dynamic_discount_min>>;
+  bool enable = true;
+  std::size_t short_term_window_length_ms = 550;  ///< short term estimate of lambda
+  std::size_t long_term_window_length_ms = 3000;  ///< lorm term estimate of lambda
+  double diff_threshold = 5;  ///< if the mean of the short term and long term estimate differ more than this threshold,
+                              ///< take the short term estimate
+  double quantile = 0.95;
+
+  using traits = figcone::FieldTraits<figcone::OptionalField<&ClutterRateEstimation::short_term_window_length_ms>,
+                                      figcone::OptionalField<&ClutterRateEstimation::enable>,
+                                      figcone::OptionalField<&ClutterRateEstimation::long_term_window_length_ms>,
+                                      figcone::OptionalField<&ClutterRateEstimation::diff_threshold>,
+                                      figcone::OptionalField<&ClutterRateEstimation::quantile>>;
 };
 struct DetectionRateEstimation
 {
-  double static_discount = 0.99;
-  double dynamic_discount_alpha = 4;
-  double dynamic_discount_min = 0.3;
-  using traits = figcone::FieldTraits<figcone::OptionalField<&DetectionRateEstimation::static_discount>,
-                                      figcone::OptionalField<&DetectionRateEstimation::dynamic_discount_alpha>,
-                                      figcone::OptionalField<&DetectionRateEstimation::dynamic_discount_min>>;
+  bool enable = true;
+  std::size_t short_term_window_length_ms = 550;  ///< short term estimate of lambda
+  std::size_t long_term_window_length_ms = 3000;  ///< lorm term estimate of lambda
+  double diff_threshold = 5;  ///< if the mean of the short term and long term estimate differ more than this threshold,
+                              ///< take the short term estimate
+  double quantile = 0.95;
+  using traits = figcone::FieldTraits<figcone::OptionalField<&DetectionRateEstimation::short_term_window_length_ms>,
+                                      figcone::OptionalField<&DetectionRateEstimation::enable>,
+                                      figcone::OptionalField<&DetectionRateEstimation::long_term_window_length_ms>,
+                                      figcone::OptionalField<&DetectionRateEstimation::diff_threshold>,
+
+                                      figcone::OptionalField<&DetectionRateEstimation::quantile>>;
+};
+
+struct PersistenceProbEstimation
+{
+  bool enable = true;
+  double prior_mean = 0.95;
+  double prior_var = 0.001;
+  std::size_t window_length_ms = 300;  ///< how many updates should influence the prior
+  using traits = figcone::FieldTraits<figcone::OptionalField<&PersistenceProbEstimation::prior_mean>,
+                                      figcone::OptionalField<&PersistenceProbEstimation::enable>,
+                                      figcone::OptionalField<&PersistenceProbEstimation::prior_var>,
+                                      figcone::OptionalField<&PersistenceProbEstimation::window_length_ms>>;
 };
 
 struct LMBICFilterParams
 {
 };
 
+struct BayesFactorParams
+{
+  struct ComparisonClutterRate
+  {
+    double mean = 20;
+    double var = 300;
+    using traits = figcone::FieldTraits<figcone::OptionalField<&ComparisonClutterRate::mean>,
+                                        figcone::OptionalField<&ComparisonClutterRate::var>>;
+  };
+  struct Clutter
+  {
+    bool enable = true;
+    ComparisonClutterRate comparison{};
+    using traits =
+        figcone::FieldTraits<figcone::OptionalField<&Clutter::enable>, figcone::OptionalField<&Clutter::comparison>>;
+  };
+  Clutter clutter{};
+  struct ComparisonDetectionProb
+  {
+    double mean = 0.7;
+    double var = 0.02;
+    using traits = figcone::FieldTraits<figcone::OptionalField<&ComparisonDetectionProb::mean>,
+                                        figcone::OptionalField<&ComparisonDetectionProb::var>>;
+  };
+  struct Detection
+  {
+    bool enable = true;
+    std::vector<ComparisonDetectionProb> comparison{ { .mean = 0.5, .var = 0.083 },     // Beta(1, 1)
+                                                     { .mean = 0.5, .var = 0.019 },     // Beta(6, 6)
+                                                     { .mean = 0.8, .var = 0.026 },     // Beta(4, 1)
+                                                     { .mean = 0.2, .var = 0.026 },     // Beta(1, 4)
+                                                     { .mean = 0.75, .var = 0.014 },    // Beta(9, 3)
+                                                     { .mean = 0.25, .var = 0.014 } };  // Beta(3, 9)
+    using traits = figcone::FieldTraits<figcone::OptionalField<&Detection::enable>,
+                                        figcone::OptionalField<&Detection::comparison>>;
+  };
+  Detection detection;
+
+  std::size_t num_updates = 1;  ///< collect the last num_updates data together and evaluate combined
+  using traits = figcone::FieldTraits<figcone::OptionalField<&BayesFactorParams::clutter>,
+                                      figcone::OptionalField<&BayesFactorParams::detection>>;
+};
+
+struct TrackAssessment
+{
+  std::size_t window_length_ms = 150;
+};
+
 struct SelfAssessmentParams
 {
+  bool enable = false;
   ClutterRateEstimation clutter_rate_estimation{};
   DetectionRateEstimation detection_prob_estimation{};
-  using traits = figcone::FieldTraits<figcone::OptionalField<&SelfAssessmentParams::clutter_rate_estimation>,
-                                      figcone::OptionalField<&SelfAssessmentParams::detection_prob_estimation>>;
+  PersistenceProbEstimation persistence_prob_estimation{};
+  BayesFactorParams bayes_factor{};
+  TrackAssessment track_assessment{};
+  std::size_t opinion_filter_size = 7;
+  using traits = figcone::FieldTraits<figcone::OptionalField<&SelfAssessmentParams::enable>,
+                                      figcone::OptionalField<&SelfAssessmentParams::clutter_rate_estimation>,
+                                      figcone::OptionalField<&SelfAssessmentParams::detection_prob_estimation>,
+                                      figcone::OptionalField<&SelfAssessmentParams::persistence_prob_estimation>,
+                                      figcone::OptionalField<&SelfAssessmentParams::bayes_factor>,
+                                      figcone::OptionalField<&SelfAssessmentParams::track_assessment>,
+                                      figcone::OptionalField<&SelfAssessmentParams::opinion_filter_size>>;
 };
 
 /// The Parameters used in the GaussianMeasurementModel
@@ -668,36 +996,14 @@ struct TTTUncorrelatedTracksParams
                                       figcone::OptionalField<&TTTUncorrelatedTracksParams::var>>;
 };
 
-struct LMBFPMFilterParams
-{
-  bool do_profiling = false;
-  std::size_t sensor_number;
-  std::size_t pmNumBestComponents_k;
-  bool calculate_true_k_best = true;  // if true -> generalizedKBest algorithm is used, else kBestSelection is used
-  bool calculate_poisson_k_best =
-      false;  // if true -> use poisson distribution for calculation of k, if false only scale by weight
-  double equal_allocation_share_ratio = 0.0;
-  bool calculate_fpm_fusion_tracks_parallel = true;
-  MULTI_SENSOR_UPDATE_METHOD multi_sensor_update_method = MULTI_SENSOR_UPDATE_METHOD::FPM;
-  TTTUncorrelatedTracksParams dynamicBirth;
-  using traits = figcone::FieldTraits<figcone::OptionalField<&LMBFPMFilterParams::do_profiling>,
-                                      figcone::OptionalField<&LMBFPMFilterParams::calculate_true_k_best>,
-                                      figcone::OptionalField<&LMBFPMFilterParams::calculate_poisson_k_best>,
-                                      figcone::OptionalField<&LMBFPMFilterParams::equal_allocation_share_ratio>,
-                                      figcone::OptionalField<&LMBFPMFilterParams::calculate_fpm_fusion_tracks_parallel>,
-                                      figcone::OptionalField<&LMBFPMFilterParams::multi_sensor_update_method>>;
-};
-
 struct NoFilterParams
 {
   bool do_profiling;
-  // TODO:
 };
 
 struct NNFilterParams
 {
   bool do_profiling;
-  // TODO:
 };
 
 struct GNNTrackManagementParams
@@ -724,7 +1030,7 @@ struct GNNCostMatrixParams
 
 struct GNNFilterParams
 {
-  bool do_profiling;  // TODO: profiling
+  bool do_profiling;
   bool use_grouping;
   GNNCostMatrixParams costMatrixParams;
   GNNTrackManagementParams trackManagementParams;
@@ -739,14 +1045,12 @@ struct FilterParams
   bool enable = false;
   FILTER_TYPE type;
   LMBICFilterParams lmb_ic;
-  LMBFPMFilterParams lmb_fpm;
   NoFilterParams no;
   NNFilterParams nn;
   GNNFilterParams gnn;
   UshiftTrackerParams ushift;
   using traits = figcone::FieldTraits<figcone::OptionalField<&FilterParams::enable>,
                                       figcone::OptionalField<&FilterParams::lmb_ic>,
-                                      figcone::OptionalField<&FilterParams::lmb_fpm>,
                                       figcone::OptionalField<&FilterParams::no>,
                                       figcone::OptionalField<&FilterParams::nn>,
                                       figcone::OptionalField<&FilterParams::gnn>,
@@ -760,8 +1064,14 @@ struct NoTTTFilterParams
 
 struct TransTTTFilterParams
 {
-  std::size_t max_prediction_duration_ms;  ///< how long a track will be predicted if no new stateContainers arrive,
-                                           ///< also how long a stateContainer get maximal predicted to align them in
+  bool reuse_source_ids = false;  ///< set the id of a track to the id given by its source, does not perform any checks
+  std::size_t max_prediction_duration_ms =
+      200;  ///< how long a track will be predicted if no new stateContainers arrive,
+            ///< also how long a stateContainer get maximal predicted to align them in
+  TRACK_TO_TRACK_FUSION_STRATEGY track_to_track_fusion = TRACK_TO_TRACK_FUSION_STRATEGY::TAKE_BEST;
+  using traits = figcone::FieldTraits<figcone::OptionalField<&TransTTTFilterParams::reuse_source_ids>,
+                                      figcone::OptionalField<&TransTTTFilterParams::max_prediction_duration_ms>,
+                                      figcone::OptionalField<&TransTTTFilterParams::track_to_track_fusion>>;
 };
 
 struct EvalTTTFilterParams
@@ -794,8 +1104,74 @@ struct StaticTrackParams
 struct AddStaticTracksParams
 {
   bool enable = false;
-  MeasModelId meas_model_id;
   std::vector<StaticTrackParams> tracks;
+};
+
+struct OracleMeasModelParams
+{
+  SourceId id;
+  bool detection_model = false;
+  bool clutter_model = false;
+  bool meas_noise = false;
+};
+
+struct OracleParameters
+{
+  bool persistence_prob = false;
+  bool birth_model = false;
+  bool state_model_noise = false;
+  std::vector<OracleMeasModelParams> meas_models;
+};
+
+struct OspaParams
+{
+  bool evaluate = true;
+  double p = 2;   /// 2 means euclidean distance
+  double c = 10;  /// cutoff distance, high value means focus on cardinality error, low value means focus on
+                  /// localization error (see https://ieeexplore.ieee.org/document/4632413)
+  using traits = figcone::FieldTraits<figcone::OptionalField<&OspaParams::evaluate>,
+                                      figcone::OptionalField<&OspaParams::p>,
+                                      figcone::OptionalField<&OspaParams::c>>;
+};
+
+struct Ospa2Params
+{
+  bool evaluate = false;
+  double p = 2;   /// 2 means euclidean distance
+  double c = 10;  /// cutoff distance, high value means focus on cardinality error, low value means focus on
+                  /// localization error (see https://ieeexplore.ieee.org/document/4632413)
+  std::size_t sliding_window_length_ms = 1000;
+  using traits = figcone::FieldTraits<figcone::OptionalField<&Ospa2Params::evaluate>,
+                                      figcone::OptionalField<&Ospa2Params::p>,
+                                      figcone::OptionalField<&Ospa2Params::c>,
+                                      figcone::OptionalField<&Ospa2Params::sliding_window_length_ms>>;
+};
+
+struct GospaParams
+{
+  bool evaluate = true;
+  double p = 2;   /// 2 means euclidean distance
+  double c = 10;  /// cutoff distance, high value means focus on cardinality error, low value means focus on
+                  /// localization error (see https://ieeexplore.ieee.org/document/4632413)
+  using traits = figcone::FieldTraits<figcone::OptionalField<&GospaParams::evaluate>,
+                                      figcone::OptionalField<&GospaParams::p>,
+                                      figcone::OptionalField<&GospaParams::c>>;
+};
+
+struct MetricParams
+{
+  OspaParams ospa{};
+  Ospa2Params ospa2{};
+  GospaParams gospa{};
+  using traits = figcone::FieldTraits<figcone::OptionalField<&MetricParams::ospa>,
+                                      figcone::OptionalField<&MetricParams::ospa2>,
+                                      figcone::OptionalField<&MetricParams::gospa>>;
+};
+
+struct TrajectoryParams
+{
+  std::size_t sliding_window_length_ms = 1000;
+  using traits = figcone::FieldTraits<figcone::OptionalField<&TrajectoryParams::sliding_window_length_ms>>;
 };
 
 struct Params
@@ -804,6 +1180,11 @@ struct Params
   std::size_t thread_pool_size = 0;  ///< the number of worker threads, 0 means no parallelization
   bool show_gui = false;             ///< show the gui at startup
   std::string name = "Tracking";
+  bool save_all_data = false;
+  bool sort_measurement_containers = false;
+  OracleParameters oracle_model_parameters = {};
+  MetricParams ground_truth_metrics = {};
+  TrajectoryParams trajectory = {};
   MeasurementModelsParams meas_models{};
   StateParams state{};
   std::vector<StateModelParams> state_models{};
@@ -811,6 +1192,7 @@ struct Params
   PersistenceModelParams persistence_model{};
   LMBDistributionParams lmb_distribution{};
   GLMBDistributionParams glmb_distribution{};
+  PMBMDistributionParams pmbm_distribution{};
   PHDDistributionParams phd_distribution{};
   BufferParams buffer{};
   SelfAssessmentParams self_assessment{};
@@ -818,19 +1200,165 @@ struct Params
   TTTFilterParams ttt_filter{};
   AddStaticTracksParams static_tracks{};
   using traits = figcone::FieldTraits<figcone::OptionalField<&Params::show_gui>,
+                                      figcone::OptionalField<&Params::oracle_model_parameters>,
+                                      figcone::OptionalField<&Params::ground_truth_metrics>,
+                                      figcone::OptionalField<&Params::trajectory>,
                                       figcone::OptionalField<&Params::name>,
+                                      figcone::OptionalField<&Params::save_all_data>,
+                                      figcone::OptionalField<&Params::sort_measurement_containers>,
                                       figcone::OptionalField<&Params::meas_models>,
                                       figcone::OptionalField<&Params::state>,
                                       figcone::OptionalField<&Params::birth_model>,
                                       figcone::OptionalField<&Params::persistence_model>,
                                       figcone::OptionalField<&Params::lmb_distribution>,
                                       figcone::OptionalField<&Params::glmb_distribution>,
+                                      figcone::OptionalField<&Params::pmbm_distribution>,
                                       figcone::OptionalField<&Params::phd_distribution>,
                                       figcone::OptionalField<&Params::buffer>,
                                       figcone::OptionalField<&Params::self_assessment>,
                                       figcone::OptionalField<&Params::filter>,
                                       figcone::OptionalField<&Params::ttt_filter>,
                                       figcone::OptionalField<&Params::static_tracks>>;
+  StateModelParams& state_model_params(StateModelId id)
+  {
+    assert([&] {
+      if (std::ranges::find(state_models, id, &StateModelParams::id) == state_models.end())
+      {
+        LOG_FATAL("state model params requested for state model that does not exist.");
+        LOG_FATAL(std::stacktrace::current());
+        return false;
+      }
+      return true;
+    }());
+    return *std::ranges::find(state_models, id, &StateModelParams::id);
+  }
+  [[nodiscard]] StateModelParams const& state_model_params(StateModelId id) const
+  {
+    assert([&] {
+      if (std::ranges::find(state_models, id, &StateModelParams::id) == state_models.end())
+      {
+        LOG_FATAL("state model params requested for state model that does not exist.");
+        LOG_FATAL(std::stacktrace::current());
+        return false;
+      }
+      return true;
+    }());
+    return *std::ranges::find(state_models, id, &StateModelParams::id);
+  }
+  [[nodiscard]] GaussianMeasurementModelParams const& meas_model_params(SourceId const& id) const
+  {
+    assert([&] {
+      int found = 0;
+      for (GaussianMeasurementModelParams const& model_params : meas_models.gaussian_models)
+      {
+        if (model_params.id == id or
+            (model_params.id.value_.back() == '*' and model_params.id.value_.starts_with(id.value_)))
+        {
+          found++;
+        }
+      }
+      if (found != 1)
+      {
+        LOG_FATAL("No or multiple measurement models found that match the Source Id " << id);
+        for (GaussianMeasurementModelParams const& model_params : meas_models.gaussian_models)
+        {
+          if (model_params.id == id or
+              (model_params.id.value_.back() == '*' and model_params.id.value_.starts_with(id.value_)))
+          {
+            LOG_FATAL("Match Model: " << model_params.id);
+          }
+          else
+          {
+            LOG_FATAL("NO match Model: " << model_params.id);
+          }
+        }
+        return false;
+      }
+      return true;
+    }());
+    for (GaussianMeasurementModelParams const& model_params : meas_models.gaussian_models)
+    {
+      if (model_params.id == id or
+          (model_params.id.value_.back() == '*' and model_params.id.value_.starts_with(id.value_)))
+      {
+        return model_params;
+      }
+    }
+    assert(false);
+    std::unreachable();
+  }
+  [[nodiscard]] GaussianMeasurementModelParams& meas_model_params(SourceId const& id)
+  {
+    assert([&] {
+      int found = 0;
+      for (GaussianMeasurementModelParams const& model_params : meas_models.gaussian_models)
+      {
+        if (model_params.id == id or
+            (model_params.id.value_.back() == '*' and model_params.id.value_.starts_with(id.value_)))
+        {
+          found++;
+        }
+      }
+      if (found != 1)
+      {
+        LOG_FATAL("No or multiple measurement models found that match the Source Id " << id);
+        for (GaussianMeasurementModelParams const& model_params : meas_models.gaussian_models)
+        {
+          if (model_params.id == id or
+              (model_params.id.value_.back() == '*' and model_params.id.value_.starts_with(id.value_)))
+          {
+            LOG_FATAL("Match Model: " << model_params.id);
+          }
+          else
+          {
+            LOG_FATAL("NO match Model: " << model_params.id);
+          }
+        }
+        return false;
+      }
+      return true;
+    }());
+    for (GaussianMeasurementModelParams& model_params : meas_models.gaussian_models)
+    {
+      if (model_params.id == id or
+          (model_params.id.value_.back() == '*' and model_params.id.value_.starts_with(id.value_)))
+      {
+        return model_params;
+      }
+    }
+    assert(false);
+    std::unreachable();
+  }
+  [[nodiscard]] bool have_measurement_model(SourceId const& id) const
+  {
+    int found = 0;
+    for (GaussianMeasurementModelParams const& model_params : meas_models.gaussian_models)
+    {
+      if (model_params.id == id or
+          (model_params.id.value_.back() == '*' and model_params.id.value_.starts_with(id.value_)))
+      {
+        found++;
+      }
+    }
+    if (found > 1)
+    {
+      LOG_FATAL("Multiple measurement models found that match the Source Id " << id);
+      for (GaussianMeasurementModelParams const& model_params : meas_models.gaussian_models)
+      {
+        if (model_params.id == id or
+            (model_params.id.value_.back() == '*' and model_params.id.value_.starts_with(id.value_)))
+        {
+          LOG_FATAL("Match Model: " << model_params.id);
+        }
+        else
+        {
+          LOG_FATAL("NO match Model: " << model_params.id);
+        }
+      }
+      return false;
+    }
+    return true;
+  }
 };
 
 }  // namespace ttb
@@ -846,6 +1374,14 @@ inline void PostProcessor<ttb::Params>::operator()(ttb::Params& params)
   if (not params.filter.enable and not params.ttt_filter.enable)
   {
     throw ValidationError("Both Filter and TTT Filter are disabled. This is not what you want");
+  }
+  if (std::ranges::find(params.state.multi_model.use_state_models, params.state.estimation.output_state_model) ==
+      params.state.multi_model.use_state_models.end())
+  {
+    LOG_FATAL(std::format("output state model {} was not in the use state models {}. I inserted it.",
+                          params.state.estimation.output_state_model,
+                          params.state.multi_model.use_state_models));
+    params.state.multi_model.use_state_models.push_back(params.state.estimation.output_state_model);
   }
 
   for (ttb::GaussianMeasurementModelParams& model_params : params.meas_models.gaussian_models)
@@ -995,6 +1531,15 @@ struct StringConverter<ttb::LMB_UPDATE_METHOD>
 };
 
 template <>
+struct StringConverter<ttb::GLMB_POST_PROCESSING_METHOD>
+{
+  static std::optional<ttb::GLMB_POST_PROCESSING_METHOD> fromString(const std::string& data)
+  {
+    return ttb::to_GLMB_POST_PROCESSING_METHOD(data);
+  }
+};
+
+template <>
 struct StringConverter<ttb::EXTENT>
 {
   static std::optional<ttb::EXTENT> fromString(const std::string& data)
@@ -1009,6 +1554,15 @@ struct StringConverter<ttb::OCCLUSION_MODEL_TYPE>
   static std::optional<ttb::OCCLUSION_MODEL_TYPE> fromString(const std::string& data)
   {
     return ttb::to_OCCLUSION_MODEL(data);
+  }
+};
+
+template <>
+struct StringConverter<ttb::TRACK_TO_TRACK_FUSION_STRATEGY>
+{
+  static std::optional<ttb::TRACK_TO_TRACK_FUSION_STRATEGY> fromString(const std::string& data)
+  {
+    return ttb::to_TRACK_TO_TRACK_FUSION_STRATEGY(data);
   }
 };
 
@@ -1031,9 +1585,9 @@ struct StringConverter<ttb::BUILD_MODE>
 };
 
 template <>
-struct StringConverter<ttb::Matrix>
+struct StringConverter<ttb::Matrix<double>>
 {
-  static std::optional<ttb::Matrix> fromString(const std::string& data)
+  static std::optional<ttb::Matrix<double>> fromString(const std::string& data)
   {
     std::stringstream ss(data);
     std::string row_str;
@@ -1053,10 +1607,10 @@ struct StringConverter<ttb::Matrix>
     {
       return {};
     }
-    ttb::Matrix matrix(vals.size(), vals.front().size());
-    for (std::size_t i = 0; i < matrix.rows(); ++i)
+    ttb::Matrix<double> matrix(vals.size(), vals.front().size());
+    for (ttb::Index i = 0; i < matrix.rows(); ++i)
     {
-      for (std::size_t j = 0; j < matrix.cols(); ++j)
+      for (ttb::Index j = 0; j < matrix.cols(); ++j)
       {
         matrix(i, j) = vals.at(i).at(j);
       }
@@ -1222,14 +1776,14 @@ struct StringConverter<ttb::StateModelId>
 };
 
 template <>
-struct StringConverter<ttb::MeasModelId>
+struct StringConverter<ttb::SourceId>
 {
-  static std::optional<ttb::MeasModelId> fromString(const std::string& data)
+  static std::optional<ttb::SourceId> fromString(const std::string& data)
   {
     std::stringstream ss(data);
-    ttb::MeasModelId::type val;
+    ttb::SourceId::type val;
     ss >> val;
-    return ttb::MeasModelId{ val };
+    return ttb::SourceId{ val };
   }
 };
 
@@ -1264,11 +1818,29 @@ struct StringConverter<ttb::GLMB_ASSIGNMENT_METHOD>
 };
 
 template <>
-struct StringConverter<ttb::MULTI_SENSOR_UPDATE_METHOD>
+struct StringConverter<ttb::LMB_MULTI_SENSOR_UPDATE_METHOD>
 {
-  static std::optional<ttb::MULTI_SENSOR_UPDATE_METHOD> fromString(const std::string& data)
+  static std::optional<ttb::LMB_MULTI_SENSOR_UPDATE_METHOD> fromString(const std::string& data)
   {
-    return ttb::to_MULTI_SENSOR_UPDATE_METHOD(data);
+    return ttb::to_LMB_MULTI_SENSOR_UPDATE_METHOD(data);
+  }
+};
+
+template <>
+struct StringConverter<ttb::PM_MULTI_SENSOR_UPDATE_METHOD>
+{
+  static std::optional<ttb::PM_MULTI_SENSOR_UPDATE_METHOD> fromString(const std::string& data)
+  {
+    return ttb::to_PM_MULTI_SENSOR_UPDATE_METHOD(data);
+  }
+};
+
+template <>
+struct StringConverter<ttb::GLMB_MULTI_SENSOR_UPDATE_METHOD>
+{
+  static std::optional<ttb::GLMB_MULTI_SENSOR_UPDATE_METHOD> fromString(const std::string& data)
+  {
+    return ttb::to_GLMB_MULTI_SENSOR_UPDATE_METHOD(data);
   }
 };
 

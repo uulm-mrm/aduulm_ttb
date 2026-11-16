@@ -1,35 +1,40 @@
 #pragma once
 
-#include "tracking_lib/TTTFilters/BaseTTTFilter.h"
-
-#include "tracking_lib/TTBTypes/Params.h"
+#include "tracking_lib/TTBTypes/Concepts.h"
 
 namespace ttb
 {
 
-class TTBManager;
+/// Very simple transparent track to track filter.
+/// It merges the tracks from all data sources, i.e., performs a OR merging
 
-/// Very simple transparent
-class TransTTTFilter : public BaseTTTFilter
+template<class UDT>
+class TransTTTFilter
 {
 public:
-  explicit TransTTTFilter(TTBManager* manager);
+  explicit TransTTTFilter(TTBManager<UDT>* manager);
 
-  void cycle(Time time, std::vector<StateContainer> trackContainers) override;
+  void cycle(std::vector<DataSourceContainer<UDT>> trackContainers);
 
-  [[nodiscard]] std::vector<State> getEstimate() const override;
+  [[nodiscard]] std::vector<BernoulliState<UDT>> get_estimate() const;
 
-  [[nodiscard]] TTBManager* manager() const override;
+  [[nodiscard]] std::vector<StateId> all_tracks() const;
 
-  [[nodiscard]] Time time() const override;
+  [[nodiscard]] TTBManager<UDT>* manager() const;
 
-  [[nodiscard]] TTT_FILTER_TYPE type() const override;
+  [[nodiscard]] Time time() const;
 
-  void reset() override;
+  [[nodiscard]] TTT_FILTER_TYPE type() const;
 
-  TTBManager* _manager;
+  void reset();
+
+  TTBManager<UDT>* _manager;
   Time _time = Time{ 0s };
-  std::vector<State> _tracks;
+  std::vector<BernoulliState<UDT>> _tracks;
+  std::map<SourceId, Label> _cam_vam_source_to_label;  /// always use the same label for tracks associated with a cam or
+                                                       /// vam
 };
+
+static_assert(CPTTracker<TransTTTFilter<double>, double>);
 
 }  // namespace ttb

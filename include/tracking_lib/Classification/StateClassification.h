@@ -1,6 +1,5 @@
 #pragma once
 
-#include "tracking_lib/TTBTypes/Params.h"
 #include "tracking_lib/TTBTypes/TTBTypes.h"
 #include <map>
 
@@ -13,10 +12,11 @@ class MeasClassification;
 /// A. Scheible, T. Griebel, M. Herrmann, C. Hermann and M. Buchholz, "Track Classification for Random Finite Set Based
 /// Multi-Sensor Multi-Object Tracking," 2023 IEEE Symposium Sensor Data Fusion and International Conference on
 /// Multisensor Fusion and Integration (SDF-MFI), Bonn, Germany, 2023, pp. 1-8, doi: 10.1109/SDF-MFI59545.2023.10361438.
+template<class UDT>
 class StateClassification
 {
 public:
-  explicit StateClassification(TTBManager* manager);
+  explicit StateClassification(TTBManager<UDT> const& manager);
   //// update with a MeasClassification
   void update(MeasClassification const& other);
   /// merge another StateClassification into this
@@ -36,7 +36,7 @@ public:
   void setSLEvid(std::map<CLASS, double> probs);
   /// return a string representation of the classification
   std::string toString() const;
-  TTBManager* _manager;
+  std::reference_wrapper<TTBManager<UDT> const> _manager;
   std::map<CLASS, double> _sl_evid;
 };
 

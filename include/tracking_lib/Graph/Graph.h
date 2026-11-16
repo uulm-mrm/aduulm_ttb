@@ -28,20 +28,45 @@ public:
   DiGraph() = default;
   DiGraph(std::vector<NodeId> ext_nodes, std::vector<Edge<EdgeId, NodeId, Weight>> ext_edges)
   {
+    _node2ext.reserve(ext_nodes.size());
     for (auto const& [intern_node_id, node] : std::views::enumerate(ext_nodes))
     {
+      assert(not _ext2node.contains(node));
       _ext2node.emplace(node, intern_node_id);
-      _node2ext.emplace(intern_node_id, node);
+      _node2ext.emplace_back(intern_node_id, node);
     }
     std::vector<graph_impl::Edge> edges;
     edges.reserve(ext_edges.size());
+    _edge2ext.reserve(ext_edges.size());
     for (auto const& [intern_edge_id, edge] : std::views::enumerate(ext_edges))
     {
       _ext2edge.emplace(edge.id, intern_edge_id);
-      _edge2ext.emplace(intern_edge_id, edge.id);
+      _edge2ext.emplace_back(intern_edge_id, edge.id);
+      assert(_ext2node.contains(edge.begin));
+      assert(_ext2node.contains(edge.end));
       edges.emplace_back(intern_edge_id, _ext2node.at(edge.begin), _ext2node.at(edge.end), edge.weight);
     }
     _diGraph = graph_impl::DiGraph(ext_nodes.size(), std::move(edges));
+  }
+
+  std::vector<EdgeId> edges_from(NodeId ext_node) const
+  {
+    std::vector<EdgeId> extern_edges;
+    for (graph_impl::EdgeId intern_edge_id : _diGraph.edges_from(_ext2node.at(ext_node)))
+    {
+      extern_edges.emplace_back(_edge2ext.at(intern_edge_id).second);
+    }
+    return extern_edges;
+  }
+
+  std::vector<EdgeId> edges_to(NodeId ext_node) const
+  {
+    std::vector<EdgeId> extern_edges;
+    for (graph_impl::EdgeId intern_edge_id : _diGraph.edges_to(_ext2node.at(ext_node)))
+    {
+      extern_edges.emplace_back(_edge2ext.at(intern_edge_id).second);
+    }
+    return extern_edges;
   }
 
   [[nodiscard]] std::string toString() const
@@ -53,11 +78,26 @@ public:
     }
     for (auto const& [ext_edge, edge] : _ext2edge)
     {
-      out += std::format("Edge {}: {} -> {}: {}\n",
-                         ext_edge,
-                         _node2ext.at(_diGraph._edges.at(edge)._begin),
-                         _node2ext.at(_diGraph._edges.at(edge)._end),
-                         _diGraph._edges.at(edge)._weight);
+      if constexpr (requires {
+                      { std::get<0>(ext_edge) };
+                      { std::get<1>(ext_edge) };
+                    })
+      {
+        out += std::format("Edge {} {}: {} -> {}: {}\n",
+                           std::get<0>(ext_edge),
+                           std::get<1>(ext_edge),
+                           _node2ext.at(_diGraph._edges.at(edge)._begin).second,
+                           _node2ext.at(_diGraph._edges.at(edge)._end).second,
+                           _diGraph._edges.at(edge)._weight);
+      }
+      else
+      {
+        out += std::format("Edge {}: {} -> {}: {}\n",
+                           ext_edge,
+                           _node2ext.at(_diGraph._edges.at(edge)._begin).second,
+                           _node2ext.at(_diGraph._edges.at(edge)._end).second,
+                           _diGraph._edges.at(edge)._weight);
+      }
     }
     return out;
   }
@@ -77,7 +117,7 @@ public:
     std::vector<NodeId> out;
     for (graph_impl::NodeId inter_id : intern_ids)
     {
-      out.push_back(_node2ext.at(inter_id));
+      out.push_back(_node2ext.at(inter_id).second);
     }
     return out;
   }
@@ -92,27 +132,28 @@ public:
       std::vector<NodeId> comp;
       for (graph_impl::NodeId inter : intern_comp)
       {
-        comp.push_back(_node2ext.at(inter));
+        comp.push_back(_node2ext.at(inter).second);
       }
       comps.emplace_back(std::move(comp));
     }
     return comps;
   }
 
-  /// find the k-shortest paths between two nodes in a graph with very special structure
-  [[nodiscard]] std::vector<std::pair<std::vector<EdgeId>, Weight>> k_shortest_paths(NodeId start,
-                                                                                     NodeId end,
-                                                                                     std::size_t k) const
+  /// find the k-longest paths (paths with the highest logarithmic sum weight) between two nodes in a graph with very
+  /// special structure
+  [[nodiscard]] std::vector<std::pair<std::vector<EdgeId>, Weight>> k_longest_paths(NodeId start,
+                                                                                    NodeId end,
+                                                                                    std::size_t k) const
   {
     std::vector<std::pair<std::vector<graph_impl::EdgeId>, double>> intern_best =
-        _diGraph.kShortestPath(SELECTION_STRATEGY::GENERALIZED_K_BEST, k, _ext2node.at(start), _ext2node.at(end));
+        _diGraph.kLongestPaths(SELECTION_STRATEGY::GENERALIZED_K_BEST, k, _ext2node.at(start), _ext2node.at(end));
     std::vector<std::pair<std::vector<EdgeId>, Weight>> out_paths;
     for (const auto& [intern_path, cost] : intern_best)
     {
       std::vector<EdgeId> out_path(intern_path.size());
       for (auto const& [idx, intern] : std::views::enumerate(intern_path))
       {
-        out_path.at(idx) = _edge2ext.at(intern);
+        out_path.at(idx) = _edge2ext.at(intern).second;
       }
       out_paths.emplace_back(std::move(out_path), cost);
     }
@@ -127,30 +168,9 @@ public:
 private:
   graph_impl::DiGraph _diGraph;
   std::map<NodeId, graph_impl::NodeId> _ext2node;
-  std::map<graph_impl::NodeId, NodeId> _node2ext;
+  std::vector<std::pair<graph_impl::NodeId, NodeId>> _node2ext;
   std::map<EdgeId, graph_impl::EdgeId> _ext2edge;
-  std::map<graph_impl::EdgeId, EdgeId> _edge2ext;
-};
-
-/// This represents the special case of a unidirectional IndexedGraph
-/// Attention: Only adds reverted edges
-template <class ENodeId, class EEdgeId, class EWeight>
-class Graph : public DiGraph<ENodeId, EEdgeId, EWeight>
-{
-public:
-  Graph(std::vector<ENodeId> ext_nodes, std::vector<Edge<EEdgeId, ENodeId, EWeight>> ext_edges)
-    : DiGraph<ENodeId, EEdgeId, EWeight>([&] {
-      std::vector<Edge<EEdgeId, ENodeId, EWeight>> uni_edges;
-      uni_edges.reserve(2 * ext_edges.size());
-      for (Edge<EEdgeId, ENodeId, EWeight> const& edge : ext_edges)
-      {
-        uni_edges.emplace_back(2 * edge.id, edge.begin, edge.end, edge.weight);
-        uni_edges.emplace_back(2 * edge.id + 1, edge.end, edge.begin, edge.weight);
-      }
-      return DiGraph(std::move(ext_nodes), std::move(uni_edges));
-    }())
-  {
-  }
+  std::vector<std::pair<graph_impl::EdgeId, EdgeId>> _edge2ext;
 };
 
 }  // namespace ttb::graph

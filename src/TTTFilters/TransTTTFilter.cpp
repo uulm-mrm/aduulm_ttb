@@ -5,217 +5,275 @@
 #include "tracking_lib/Misc/SeparatingAxisTest.h"
 #include "tracking_lib/TTTFilters/TTTHelpers.h"
 
-#include <tracy/tracy/Tracy.hpp>
-
-auto constexpr tracy_color = tracy::Color::Aqua;
+#include <boost/math/distributions/chi_squared.hpp>
+#include <set>
 
 namespace ttb
 {
-TransTTTFilter::TransTTTFilter(TTBManager* manager) : _manager{ manager }
+
+template class TransTTTFilter<double>;
+template class TransTTTFilter<AD>;
+
+template <class UDT>
+TransTTTFilter<UDT>::TransTTTFilter(TTBManager<UDT>* manager) : _manager{ manager }
 {
   LOG_DEB("TransTTTFilter constructed");
 }
 
-std::vector<State> TransTTTFilter::getEstimate() const
+template <class UDT>
+std::vector<BernoulliState<UDT>> TransTTTFilter<UDT>::get_estimate() const
 {
   return _tracks;
 }
 
-TTBManager* TransTTTFilter::manager() const
+template <class UDT>
+std::vector<StateId> TransTTTFilter<UDT>::all_tracks() const
+{
+  return {};
+}
+
+template <class UDT>
+TTBManager<UDT>* TransTTTFilter<UDT>::manager() const
 {
   return _manager;
 }
 
-Time TransTTTFilter::time() const
+template <class UDT>
+Time TransTTTFilter<UDT>::time() const
 {
   return _time;
 }
 
-TTT_FILTER_TYPE TransTTTFilter::type() const
+template <class UDT>
+TTT_FILTER_TYPE TransTTTFilter<UDT>::type() const
 {
   return TTT_FILTER_TYPE::TRANS;
 }
 
-void TransTTTFilter::reset()
+template <class UDT>
+void TransTTTFilter<UDT>::reset()
 {
   _tracks.clear();
   _time = Time{ 0s };
 }
 
-void TransTTTFilter::cycle(Time time, std::vector<StateContainer> trackContainers)
+template <class UDT>
+void TransTTTFilter<UDT>::cycle(std::vector<DataSourceContainer<UDT>> trackContainers)
 {
   LOG_DEB("TransTTTFilter::cycle");
-  ZoneScopedNC("TransTTTFilter::cycle", tracy_color);
-  if (trackContainers.empty())
-  {
-    std::vector<State> predicted;
-    for (State& state : _tracks)
-    {
-      if (state._meta_data._durationSinceLastAssociation <
-          std::chrono::milliseconds(_manager->params().ttt_filter.trans.max_prediction_duration_ms))
-      {
-        // predict only non cam/vam tracks
-        if (auto const cam_it = state._misc.find("planner"); cam_it == state._misc.end())
-        {
-          state.predict(time - state._time, EgoMotionDistribution::zero());
-        }
-        else
-        {
-          state._time = time;
-        }
-        if (not state.isEmpty())
-        {
-          predicted.push_back(std::move(state));
-        }
-      }
-    }
-    _tracks = std::move(predicted);
-    _time = std::max(_time, time);
-    return;
-  }
-  for (StateContainer& stateContainer : trackContainers)
+  for (DataSourceContainer<UDT>& stateContainer : trackContainers)
   {
     Time const cycle_start = std::chrono::high_resolution_clock::now();
-    std::vector<State> predicted;
-    for (State& state : _tracks)
+    if (stateContainer._source_id.value_.find("CAM") != std::string::npos or
+        stateContainer._source_id.value_.find("VAM") != std::string::npos)
     {
-      if (state._meta_data._durationSinceLastAssociation <
-          std::chrono::milliseconds(_manager->params().ttt_filter.trans.max_prediction_duration_ms))
+      _cam_vam_source_to_label.emplace(stateContainer._source_id, State<UDT>::_labelGenerator.getID());
+      if (stateContainer._tracks.size() != 1)
       {
-        if (auto const cam_it = state._misc.find("planner"); cam_it == state._misc.end())
+        LOG_WARN("received vam/vam data container with data size != 1. Ignoring this beast...");
+        LOG_WARN(stateContainer.toString());
+        continue;
+      }
+    }
+    std::vector<BernoulliState<UDT>> predicted;
+    for (BernoulliState<UDT>& state : _tracks)
+    {
+      if (state.state._meta_data._durationSinceLastAssociation <
+          std::chrono::milliseconds(_manager->params()->ttt_filter.trans.max_prediction_duration_ms))
+      {
+        state.state.predict(stateContainer._time - state.state._time, stateContainer._predictionInfo._egoMotion);
+
+        if (not state.state.isEmpty())
         {
-          state.predict(stateContainer._time - state._time, stateContainer._egoMotion);
+          predicted.push_back(std::move(state));
         }
         else
         {
-          state._time = stateContainer._time;
-        }
-        if (not state.isEmpty())
-        {
-          predicted.push_back(std::move(state));
+          LOG_DEB("state is empty");
         }
       }
     }
     _tracks = std::move(predicted);
     _time = std::max(_time, stateContainer._time);
-    tttfusion::AssignmentSol assignment = tttfusion::compute_assignment(
-        _tracks,
-        stateContainer._data,
-        std::vector<std::pair<tttfusion::Metric, double> >{ std::pair{
-            [&](State const& first, State const& second) {
-              auto [modelId, currentStateDist] = first.getEstimate();
-              Vector const currentMean = currentStateDist->mean();
+    tttfusion::AssignmentSol assignment = [&] {
+      if (_manager->params()->ttt_filter.trans.reuse_source_ids)
+      {
+        tttfusion::AssignmentSol<UDT> label_assignment;
+        std::set<Label> used_second_labels;
+        for (BernoulliState<UDT> const& first : _tracks)
+        {
+          if (auto const it = std::ranges::find_if(
+                  stateContainer._tracks,
+                  [&](BernoulliState<UDT> const& track) { return track.state._label == first.state._label; });
+              it != stateContainer._tracks.end() and not used_second_labels.contains(it->state._label))
+          {
+            label_assignment.assigned.emplace_back(first, *it);
+            used_second_labels.insert(it->state._label);
+          }
+          else
+          {
+            label_assignment.non_assigned_first.push_back(first);
+          }
+        }
+        for (BernoulliState<UDT> const& second : stateContainer._tracks)
+        {
+          if (not used_second_labels.contains(second.state._label))
+          {
+            label_assignment.non_assigned_second.push_back(second);
+          }
+        }
+        return label_assignment;
+      }
+      return tttfusion::compute_assignment(
+          _tracks,
+          stateContainer._tracks,
+          std::vector<std::pair<tttfusion::Metric<UDT>, UDT>>{
+              std::pair{ [&](BernoulliState<UDT> const& first, BernoulliState<UDT> const& second) {
+                          auto [modelId, currentStateDist] = first.state.getEstimate();
+                          Vector<UDT> const currentMean = currentStateDist.mean();
 
-              auto [newModelId, newDist] = second.getEstimate();
-              Vector const newMean = newDist->mean();
-              return static_cast<double>(not sat::is_overlapping(currentMean,
-                                                                 _manager->getStateModel(modelId).state_comps(),
-                                                                 newMean,
-                                                                 _manager->getStateModel(newModelId).state_comps()));
-            },
-            0.5 } });
-    std::vector<State> fused_tracks;
+                          auto [newModelId, newDist] = second.state.getEstimate();
+                          Vector<UDT> const newMean = newDist.mean();
+                          return static_cast<double>(not sat::is_overlapping(
+                              currentMean, _manager->state_comps(modelId), newMean, _manager->state_comps(newModelId)));
+                        },
+                         0.5 },  /// merge if the tracks are overlapping
+              std::pair{ [&](BernoulliState<UDT> const& first, BernoulliState<UDT> const& second) -> UDT {
+                          auto [modelId, currentStateDist] = first.state.getEstimate();
+                          auto [newModelId, newDist] = second.state.getEstimate();
+                          Vector<UDT> const currentMean = currentStateDist.mean();
+                          auto const first_inds =
+                              _manager->state_comps(modelId).indexOf({ COMPONENT::POS_X, COMPONENT::POS_Y });
+                          auto const second_inds =
+                              _manager->state_comps(newModelId).indexOf({ COMPONENT::POS_X, COMPONENT::POS_Y });
+                          if (not(first_inds.has_value() and second_inds.has_value()))
+                          {
+                            return 0.0;
+                          }
+                          Vector<UDT> const diff =
+                              currentStateDist.mean()(first_inds.value()) - newDist.mean()(second_inds.value());
+                          Matrix<UDT> const cov = currentStateDist.covariance()(first_inds.value(), first_inds.value()) +
+                                             newDist.covariance()(second_inds.value(), second_inds.value());
+                          UDT const mhd2 = diff.transpose() * cov.llt().solve(diff);
+                          return mhd2;
+                        },
+                         boost::math::quantile(boost::math::chi_squared_distribution(2.0),
+                                               0.9) }  // merge if the tracks are close with respect to their covariance
+          },
+          false);
+    }();
+    std::vector<BernoulliState<UDT>> fused_tracks;
     for (auto& [first, second] : assignment.assigned)
     {
-      std::optional<State> fused = tttfusion::cross_covariance_intersection(first, second, _manager);
+      std::optional<BernoulliState<UDT>> fused = [&] -> std::optional<BernoulliState<UDT>> {
+        if (_manager->params()->ttt_filter.trans.track_to_track_fusion ==
+            TRACK_TO_TRACK_FUSION_STRATEGY::CROSS_COVARIANCE_INTERSECTION)
+        {
+          return tttfusion::cross_covariance_intersection(first, second, _manager);
+        }
+        else if (_manager->params()->ttt_filter.trans.track_to_track_fusion ==
+                 TRACK_TO_TRACK_FUSION_STRATEGY::TAKE_BEST)
+        {
+          if (first.state.getEstimate().second.covariance().trace() <
+              second.state.getEstimate().second.covariance().trace())
+          {
+            return first;
+          }
+          return second;
+        }
+        LOG_FATAL("error");
+        assert(false);
+        std::unreachable();
+      }();
+
       if (fused.has_value())
       {
-        if (stateContainer._id.value_.find("CAM") != std::string::npos or
-            stateContainer._id.value_.find("VAM") != std::string::npos)
+        if (_manager->params()->ttt_filter.trans.reuse_source_ids)
         {
-          fused.value()._misc["planner"] = std::string{ "associated with " + stateContainer._id.value_ };
-          fused.value()._state_dist = std::move(second._state_dist);
-          // all other tracks are not associated to this id
-          for (State& state : fused_tracks)
-          {
-            if (auto const it = state._misc.find("planner");
-                it != state._misc.end() and
-                std::any_cast<std::string>(it->second) == std::string{ "associated with " + stateContainer._id.value_ })
-            {
-              state._misc.erase(it);
-            }
-          }
-          for (State& state : assignment.non_assigned_first)
-          {
-            if (auto const it = state._misc.find("planner");
-                it != state._misc.end() and
-                std::any_cast<std::string>(it->second) == std::string{ "associated with " + stateContainer._id.value_ })
-            {
-              state._misc.erase(it);
-            }
-          }
+          fused.value().state._label = second.state._label;
         }
-        else if (auto const cam_it = fused.value()._misc.find("planner"); cam_it != fused.value()._misc.end())
+        if (not fused.value().state.isEmpty())
         {
-          fused.value()._state_dist = std::move(first._state_dist);
+          fused_tracks.push_back(std::move(fused.value()));
         }
-        fused_tracks.push_back(std::move(fused.value()));
+        else
+        {
+          LOG_DEB("state is empty");
+        }
       }
     }
-    for (State& old_non_assigned : assignment.non_assigned_first)
+    for (BernoulliState<UDT>& old_non_assigned : assignment.non_assigned_first)
     {
       fused_tracks.push_back(std::move(old_non_assigned));
     }
-    for (State& new_non_assigned : assignment.non_assigned_second)
+    for (BernoulliState<UDT>& new_non_assigned : assignment.non_assigned_second)
     {
-      auto const& [id, dist] = new_non_assigned.getEstimate();
-      auto trans = transformation::transform(
-          dist->mean(),
-          dist->covariance(),
-          _manager->getStateModel(id).state_comps(),
-          _manager->getStateModel(_manager->params().state.estimation.output_state_model).state_comps());
-      if (not trans.has_value())
+      std::map<StateModelId, std::vector<std::pair<UDT, GaussianDistribution<UDT>>>> state_dist;
+      for (auto const& [model, dist] : new_non_assigned.state._state_dist)
       {
-        LOG_WARN("Can not transform Track " + new_non_assigned.toString() +
-                 " to desired output state model. Ignore this track.");
-        continue;
-      }
-      State state = _manager->createState();
-      state._state_dist.emplace(
-          _manager->params().state.estimation.output_state_model,
-          std::make_unique<GaussianDistribution>(std::move(trans.value().mean), std::move(trans.value().cov)));
-      state._time = new_non_assigned._time;
-      state._meta_data._durationSinceLastAssociation = 0s;
-      state._classification = new_non_assigned._classification;
-      state._existenceProbability = new_non_assigned._existenceProbability;
-      if (stateContainer._id.value_.find("CAM") != std::string::npos or
-          stateContainer._id.value_.find("VAM") != std::string::npos)
-      {
-        for (State& prev_state : fused_tracks)
+        for (auto const& [weight, gauss] : dist.second.to_gaussian_components())
         {
-          if (auto const it = prev_state._misc.find("planner");
-              it != prev_state._misc.end() and
-              std::any_cast<std::string>(it->second) == std::string{ "associated with " + stateContainer._id.value_ })
+          auto trans =
+              transformation::transform(gauss.mean(),
+                                        gauss.covariance(),
+                                        _manager->state_comps(model),
+                                        _manager->state_comps(_manager->params()->state.estimation.output_state_model));
+          if (trans.has_value())
           {
-            prev_state._misc.erase(it);
+            state_dist[_manager->params()->state.estimation.output_state_model].emplace_back(
+                weight * dist.first, GaussianDistribution(std::move(trans.value().mean), std::move(trans.value().cov)));
           }
         }
-        state._misc["planner"] = std::string{ "associated with " + stateContainer._id.value_ };
       }
-      fused_tracks.push_back(std::move(state));
+      if (state_dist.empty())
+      {
+        LOG_WARN(
+            std::format("Can not transform Track {} to desired state model {} with components {}",
+                        new_non_assigned.state.toString(),
+                        _manager->params()->state.estimation.output_state_model.value_,
+                        _manager->state_comps(_manager->params()->state.estimation.output_state_model).toString()));
+        continue;
+      }
+      State state(_manager, std::move(state_dist));
+      if (_manager->params()->ttt_filter.trans.reuse_source_ids)
+      {
+        state._label = new_non_assigned.state._label;
+      }
+      state._time = new_non_assigned.state._time;
+      state._meta_data._durationSinceLastAssociation = 0s;
+      state._classification = new_non_assigned.state._classification;
+      if (not state.isEmpty())
+      {
+        fused_tracks.emplace_back(std::move(state), new_non_assigned.existence_probability);
+      }
     }
     _tracks = std::move(fused_tracks);
     assert([&] {  // NOLINT
-      std::vector<std::string> planner;
-      for (State const& state : _tracks)
+      std::vector<Label> labels;
+      for (BernoulliState<UDT> const& state : _tracks)
       {
-        if (auto const it = state._misc.find("planner"); it != state._misc.end())
+        if (std::ranges::find(labels, state.state._label) != labels.end())
         {
-          if (auto const already_assoc_it = std::ranges::find(planner, std::any_cast<std::string>(it->second));
-              already_assoc_it != planner.end())
-          {
-            return false;
-            LOG_FATAL("Same CAM/VAM id assoc to multiple states: " << std::any_cast<std::string>(it->second));
-          }
-          planner.push_back(std::any_cast<std::string>(it->second));
+          LOG_FATAL("same label");
+          LOG_FATAL(state.state.toString());
+          return false;
+        }
+        labels.push_back(state.state._label);
+        if (not state.state.isValid())
+        {
+          LOG_FATAL("invalid state");
+          LOG_FATAL(state.state.toString());
+          return false;
         }
       }
       return true;
     }());
-    if (_manager->params().show_gui)
+    if (_manager->params()->show_gui)
     {
-      _manager->vizu()._meas_model_data[MeasModelId{ stateContainer._id.value_ }]._computation_time.emplace_back(
-          _time, std::chrono::high_resolution_clock::now() - cycle_start);
+      _manager->vizu()
+          ._meas_model_data.wlock()
+          .data[SourceId{ stateContainer._source_id.value_ }]
+          ._computation_time.emplace_back(_time, std::chrono::high_resolution_clock::now() - cycle_start);
     }
   }
 }

@@ -44,7 +44,7 @@ state:
     discount_factor_prediction: 0.98
   estimation:
     transform_output_state: false
-    output_state_model: 4
+    output_state_model: 0
     type: BEST_STATE_MODEL
 
 

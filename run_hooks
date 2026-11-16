@@ -1,0 +1,4 @@
+#!/bin/bash
+"/usr/bin/python3" \
+	"/home/hermann/workspace/test_github_ttb/aduulm_cmake_tools/git_hooks/git-cmake-format.py" \
+	$@

@@ -4,15 +4,22 @@
 namespace ttb::angles
 {
 
+/// angle between to vectors
+[[nodiscard]] double angle_between(Vector3 const& from, Vector3 const& to);
 /// normalize angle to the interval (-pi, pi]
-void normalizeAngle(double& phi_in);
+template <class UDT>
+void normalizeAngle(UDT& phi_in);
 /// compute a weighted mean of angles
-[[nodiscard]] double weightedMean(Eigen::RowVectorXd const& angles, Eigen::VectorXd const& weights);
+template <class UDT>
+[[nodiscard]] UDT weighted_mean(std::vector<std::pair<UDT, UDT>> const& weight_angle);
 /// compute a weighted mean of angles
-[[nodiscard]] double weightedMean(std::span<double const> angles, std::span<double const> weights);
+template <class UDT>
+[[nodiscard]] UDT weighted_mean(std::span<UDT const> angles, std::span<UDT const> weights);
 /// linear interpolate a pair of angles
-[[nodiscard]] std::vector<double> lerp_angles(double from, double to, std::size_t num_steps);
+template <class UDT>
+[[nodiscard]] std::vector<UDT> lerp_angles(UDT from, UDT to, std::size_t num_steps);
 /// smaller difference between to angles
-[[nodiscard]] double smaller_diff(double angle1, double angle2);
+template <class UDT>
+[[nodiscard]] UDT smaller_diff(UDT angle1, UDT angle2);
 
 }  // namespace ttb::angles

@@ -2,17 +2,20 @@
 // ######################################################################################################################
 #include "tracking_lib/Classification/MeasClassification.h"
 #include "tracking_lib/TTBManager/TTBManager.h"
-#include "tracking_lib/Measurements/Measurement.h"
 // ######################################################################################################################
 #include <sstream>
 
 namespace ttb::classification
 {
 
-StateClassification::StateClassification(TTBManager* manager)
+template class StateClassification<double>;
+template class StateClassification<AD>;
+
+template <class UDT>
+StateClassification<UDT>::StateClassification(TTBManager<UDT> const& manager)
   : _manager(manager), _sl_evid{ [&] {
     std::map<CLASS, double> evid;
-    for (auto const clazz : _manager->params().state.classification.classes)
+    for (auto const clazz : _manager.get().params()->state.classification.classes)
     {
       evid[clazz] = 1;
     }
@@ -22,7 +25,8 @@ StateClassification::StateClassification(TTBManager* manager)
 }
 
 // Updates the current (state) classification based on (measurement) classification
-void StateClassification::update(MeasClassification const& other)
+template <class UDT>
+void StateClassification<UDT>::update(MeasClassification const& other)
 {
   if (other.getEstimate() == CLASS::NOT_CLASSIFIED)
   {
@@ -41,14 +45,14 @@ void StateClassification::update(MeasClassification const& other)
     }
     else
     {  // if typ not found in other -> distribute remaining prob equally
-      auto tmp = prob_other / (_manager->params().state.classification.classes.size() - other.getSize());
+      auto tmp = prob_other / (_manager.get().params()->state.classification.classes.size() - other.getSize());
       m[class_evid.first] = (tmp + class_evid.second) / (1 + S);
       v[class_evid.first] = (1 + class_evid.second) * (class_evid.second + 2 * tmp) * 1 / (1 + S) * 1 / (2 + S);
     }
   }
   double num = 0;
   double denum = 0;
-  for (auto clazz : _manager->params().state.classification.classes)
+  for (auto clazz : _manager.get().params()->state.classification.classes)
   {
     num += (m[clazz] - v[clazz]) * m[clazz] * (1 - m[clazz]);
     denum += (v[clazz] - m[clazz]) * (v[clazz] - m[clazz]) * m[clazz] * (1 - m[clazz]);
@@ -61,7 +65,8 @@ void StateClassification::update(MeasClassification const& other)
 
 // merge the current (state) classification with other (state) classification
 // as far as I know this happens only within Track... when approx./marginalize the GLMB to LMB
-void StateClassification::merge(const StateClassification& other)
+template <class UDT>
+void StateClassification<UDT>::merge(const StateClassification& other)
 {
   LOG_DEB("Merge State Classifications");
 
@@ -74,7 +79,8 @@ void StateClassification::merge(const StateClassification& other)
   }
 }
 
-void StateClassification::discount(double alpha)
+template <class UDT>
+void StateClassification<UDT>::discount(double alpha)
 {
   assert([&] {  // NOLINT
     if (alpha < 0 or alpha > 1)
@@ -90,12 +96,14 @@ void StateClassification::discount(double alpha)
   }
 }
 
-void StateClassification::discount()
+template <class UDT>
+void StateClassification<UDT>::discount()
 {
-  discount(_manager->params().state.classification.discount_factor_prediction);
+  discount(_manager.get().params()->state.classification.discount_factor_prediction);
 }
 
-CLASS StateClassification::getEstimate() const
+template <class UDT>
+CLASS StateClassification<UDT>::getEstimate() const
 {
   if (auto const max_it =
           std::ranges::max_element(_sl_evid, [](auto const& a, auto const& b) { return a.second < b.second; });
@@ -106,12 +114,14 @@ CLASS StateClassification::getEstimate() const
   return CLASS::NOT_CLASSIFIED;
 }
 
-std::size_t StateClassification::getSize() const
+template <class UDT>
+std::size_t StateClassification<UDT>::getSize() const
 {
-  return _manager->params().state.classification.classes.size();
+  return _manager.get().params()->state.classification.classes.size();
 }
 
-std::string StateClassification::toString() const
+template <class UDT>
+std::string StateClassification<UDT>::toString() const
 {
   std::string out;
   for (auto const [clazz, evid] : _sl_evid)
@@ -121,7 +131,8 @@ std::string StateClassification::toString() const
   return out;
 }
 
-double StateClassification::getProb(CLASS typ) const
+template <class UDT>
+double StateClassification<UDT>::getProb(CLASS typ) const
 {
   const double S = std::accumulate(
       _sl_evid.begin(), _sl_evid.end(), 0.0, [](auto prev, auto& map_entry) { return prev + map_entry.second; });
@@ -132,9 +143,10 @@ double StateClassification::getProb(CLASS typ) const
   return 0;
 }
 
-void StateClassification::setSLEvid(std::map<CLASS, double> probs)
+template <class UDT>
+void StateClassification<UDT>::setSLEvid(std::map<CLASS, double> probs)
 {
-  for (CLASS const& elem : _manager->params().state.classification.classes)
+  for (CLASS const& elem : _manager.get().params()->state.classification.classes)
   {
     if (probs.contains(elem))
     {

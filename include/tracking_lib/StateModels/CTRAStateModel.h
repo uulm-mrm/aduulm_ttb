@@ -1,32 +1,21 @@
 #pragma once
-
-#include "tracking_lib/StateModels/NonLinearStateModel.h"
+#include "tracking_lib/Distributions/GaussianDistribution.h"
+#include "tracking_lib/States/EgoMotionDistribution.h"
+#include "tracking_lib/TTBTypes/TTBTypes.h"
 
 namespace ttb
 {
 
-Components const CTRA_state_comps = Components({ COMPONENT::POS_X,
-                                                 COMPONENT::POS_Y,
-                                                 COMPONENT::POS_Z,
-                                                 COMPONENT::VEL_ABS,
-                                                 COMPONENT::ACC_ABS,
-                                                 COMPONENT::ROT_Z,
-                                                 COMPONENT::VEL_ROT_Z });
-Components const CTRA_noise_comps = Components({ COMPONENT::JERK_ABS, COMPONENT::ACC_ROT_Z });
-
-/// modified TTB_EPS for case distinction in CTRA kinematic model, see
-/// https://mrm-git.e-technik.uni-ulm.de/aduulm/source/tracking/issues/56
-/// for detailed derivation and explanation
-static constexpr double CTRA_EPS = 10 * 10 * 10 * TTB_EPS;
-
 /// Constant turn rate and acceleration state model
-class CTRAStateModel final : public NonLinearStateModel
+template<class UDT>
+class CTRAStateModel
 {
 public:
-  CTRAStateModel(TTBManager* manager, StateModelId id);
-  ~CTRAStateModel() override = default;
-  [[nodiscard]] STATE_MODEL_TYPE type() const noexcept override;
-  [[nodiscard]] Vector applyKinematicModel(Duration dt, Vector x, Vector noise) const override;
+  [[nodiscard]] static STATE_MODEL_TYPE type() noexcept;
+  [[nodiscard]] Vector<UDT> applyKinematicModel(Duration dt, Vector<UDT> const& x, Vector<UDT> const& noise) const;
+  GaussianDistribution<UDT> predict(Duration dt, GaussianDistribution<UDT> const& dist, EgoMotionDistribution const& ego) const;
+  TTBManager<UDT> const& _manager;
+  StateModelId _id;
 };
 
 }  // namespace ttb

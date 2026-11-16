@@ -1,20 +1,17 @@
 #include "tracking_lib/Misc/HungarianMethod.h"
-
 #include <tracy/tracy/Tracy.hpp>
 
 namespace ttb::hungarian
 {
 
-constexpr auto tracy_color = tracy::Color::PaleTurquoise;
-
 using MatrixXb = Eigen::Matrix<bool, -1, -1>;
 using VectorXb = Eigen::Vector<bool, -1>;
 
-Solution hungarian(Matrix const& cost_in);
+Solution hungarian(Matrix<double> const& cost_in);
 
-Solution solve(Matrix const& m)
+Solution solve(Matrix<double> const& m)
 {
-  ZoneScopedNC("Hungarian", tracy_color);
+  ZoneScopedN("Assignments::hungarian");
   return hungarian(m);
 }
 
@@ -28,23 +25,23 @@ Indices find(VectorXb const& bools)
   return idx.reverse();
 }
 
-void computeassignmentcost(Matrix const& cost, Solution& solution);
+void computeassignmentcost(Matrix<double> const& cost, Solution& solution);
 
-void step2a(Matrix& cost,
+void step2a(Matrix<double>& cost,
             Solution& solution,
             MatrixXb& star,
             MatrixXb& prime,
             VectorXb& covered_cols,
             VectorXb& covered_rows);
 
-void step2b(Matrix& cost,
+void step2b(Matrix<double>& cost,
             Solution& solution,
             MatrixXb& star,
             MatrixXb& prime,
             VectorXb& covered_cols,
             VectorXb& covered_rows);
 
-void step3(Matrix& cost,
+void step3(Matrix<double>& cost,
            Solution& solution,
            MatrixXb& star,
            MatrixXb& prime,
@@ -53,21 +50,21 @@ void step3(Matrix& cost,
 
 void step4(Index row,
            Index col,
-           Matrix& cost,
+           Matrix<double>& cost,
            Solution& solution,
            MatrixXb& star,
            MatrixXb& prime,
            VectorXb& covered_cols,
            VectorXb& covered_rows);
 
-void step5(Matrix& cost,
+void step5(Matrix<double>& cost,
            Solution& solution,
            MatrixXb& star,
            MatrixXb& prime,
            VectorXb& covered_cols,
            VectorXb& covered_rows);
 
-Solution hungarian(Matrix const& cost_in)
+Solution hungarian(Matrix<double> const& cost_in)
 {
   Solution solution{ .assignment = Indices::Constant(cost_in.rows(), -1),
                      .cost = std::numeric_limits<double>::infinity() };
@@ -127,7 +124,7 @@ void buildassignmentvector(MatrixXb const& _starMatrix, Solution& solution)
 }
 
 /********************************************************/
-void computeassignmentcost(Matrix const& cost, Solution& solution)
+void computeassignmentcost(Matrix<double> const& cost, Solution& solution)
 {
   if ((solution.assignment.array() < 0).any())
   {
@@ -150,7 +147,7 @@ void computeassignmentcost(Matrix const& cost, Solution& solution)
 }
 
 /********************************************************/
-void step2a(Matrix& cost,
+void step2a(Matrix<double>& cost,
             Solution& solution,
             MatrixXb& star,
             MatrixXb& prime,
@@ -168,7 +165,7 @@ void step2a(Matrix& cost,
 }
 
 /********************************************************/
-void step2b(Matrix& cost,
+void step2b(Matrix<double>& cost,
             Solution& solution,
             MatrixXb& star,
             MatrixXb& prime,
@@ -186,7 +183,7 @@ void step2b(Matrix& cost,
 }
 
 /********************************************************/
-void step3(Matrix& cost,
+void step3(Matrix<double>& cost,
            Solution& solution,
            MatrixXb& star,
            MatrixXb& prime,
@@ -228,7 +225,7 @@ void step3(Matrix& cost,
 /********************************************************/
 void step4(Index row,
            Index col,
-           Matrix& cost,
+           Matrix<double>& cost,
            Solution& solution,
            MatrixXb& star,
            MatrixXb& prime,
@@ -258,7 +255,7 @@ void step4(Index row,
 }
 
 /********************************************************/
-void step5(Matrix& cost,
+void step5(Matrix<double>& cost,
            Solution& solution,
            MatrixXb& star,
            MatrixXb& prime,

@@ -1,183 +1,71 @@
 #include "tracking_lib/MultiObjectStateDistributions/LMBDistribution.h"
-// #####################################################################################################################
+#include "tracking_lib/DataContainer/DataSourceContainer.h"
 #include "tracking_lib/TTBManager/TTBManager.h"
-#include "tracking_lib/Measurements/MeasurementContainer.h"
-#include "tracking_lib/States/Innovation.h"
-#include "tracking_lib/StateModels/BaseStateModel.h"
+#include "tracking_lib/DataContainer/Database.h"
 #include "tracking_lib/Graph/Graph.h"
 #include "tracking_lib/Misc/Numeric.h"
 #include "tracking_lib/SelfAssessment/SelfAssessment.h"
-#include "tracking_lib/Misc/Grouping.h"
+#include "tracking_lib/MultiObjectStateDistributions/GLMBDistribution.h"
 #include "tracking_lib/MultiObjectStateDistributions/Utils.h"
-#include "tracking_lib/Misc/AngleNormalization.h"
-#include "tracking_lib/Misc/ProportionalAllocation.h"
+#include "tracking_lib/TTBTypes/Concepts.h"
 
-#include <execution>
+#include <aduulm_logger/aduulm_logger.hpp>
+#include <ranges>
 #include <utility>
-
-#include <tracy/tracy/Tracy.hpp>
+#include <immintrin.h>
+#include <tracy/tracy/TracyC.h>
 
 namespace ttb
 {
-constexpr const auto tracy_color = tracy::Color::LightSalmon;
 
-IDGenerator<MODistributionId> LMBDistribution::_idGenerator{};
+template class LMBDistribution<double>;
+template class LMBDistribution<AD>;
 
-std::string to_string(GLMB2LMBConversionProfilerData const& data)
+template <class UDT>
+IDGenerator<MODistributionId> LMBDistribution<UDT>::_idGenerator{};
+
+template <class UDT>
+LMBDistribution<UDT>::LMBDistribution(TTBManager<UDT>* manager) : LMBDistribution(manager, std::vector<StateId>{})
 {
-  std::string out = "GLMB2LMB Conversion\n";
-  out += "\tDuration: " + std::to_string(to_milliseconds(data._duration)) + "ms\n";
-  out += "\t#GLMB Hypotheses: " + std::to_string(data._numGlmbHypotheses) + "\n";
-  out += "\t#Tracks: " + std::to_string(data._numTracks) + "\n";
-  return out;
 }
-std::string to_stringStatistics(std::vector<GLMB2LMBConversionProfilerData> const& datas)
+
+template <class UDT>
+LMBDistribution<UDT>::LMBDistribution(TTBManager<UDT>* manager, std::vector<State<UDT>> tracks)
+  : _manager{ manager }
+  , _previous_label_ex_probs{ std::chrono::milliseconds(
+        _manager->params()->self_assessment.persistence_prob_estimation.window_length_ms) }
 {
-  std::string out = "GLMB2LMB Conversion Statistics\n";
-  Duration meanDuration(0);
-  double meanHyp = 0;
-  double meanTracks = 0;
-  for (auto const& data : datas)
+  std::vector<StateId> ids;
+  for (State<UDT> const& track : tracks)
   {
-    meanDuration += data._duration / datas.size();
-    meanHyp += static_cast<double>(data._numGlmbHypotheses) / datas.size();
-    meanTracks += static_cast<double>(data._numTracks) / datas.size();
+    ids.push_back(track._id);
+    _manager->database().states.insert(track);
   }
-  out += "\tMean Duration: " + std::to_string(to_milliseconds(meanDuration)) + "ms\n";
-  out += "\tMean #GLMB Hypotheses: " + std::to_string(meanHyp) + "\n";
-  out += "\tMean #Tracks: " + std::to_string(meanTracks) + "\n";
-  return out;
+  _tracks = std::move(ids);
 }
 
-std::string to_string(LMBCalcInnovationProfilerData const& data)
-{
-  std::string out = "LMB Innovation\n";
-  out += "\tDuration: " + std::to_string(to_milliseconds(data._duration)) + "ms\n";
-  out += "\t#Tracks: " + std::to_string(data._numTracks) + "\n";
-  out += "\t#Updated Tracks: " + std::to_string(data._numUpdatedTracks) + "\n";
-  out += "\t#Measurements: " + std::to_string(data._numMeasurements) + "\n";
-  out += "\tMeasModel ID: " + data._id.value_ + "\n";
-  return out;
-}
-std::string to_stringStatistics(std::vector<LMBCalcInnovationProfilerData> const& datas)
-{
-  std::string out = "LMB Innovation Statistics\n";
-  Duration meanDuration(0);
-  double meanTracks = 0;
-  double meanUpdatedTracks = 0;
-  double meanMeasurements = 0;
-  for (auto const& data : datas)
-  {
-    meanDuration += data._duration / datas.size();
-    meanTracks += static_cast<double>(data._numTracks) / datas.size();
-    meanUpdatedTracks += static_cast<double>(data._numUpdatedTracks) / datas.size();
-    meanMeasurements += static_cast<double>(data._numMeasurements) / datas.size();
-  }
-  out += "\tMean Duration: " + std::to_string(to_milliseconds(meanDuration)) + "ms\n";
-  out += "\tMean #Tracks: " + std::to_string(meanTracks) + "\n";
-  out += "\tMean #Updated Tracks: " + std::to_string(meanUpdatedTracks) + "\n";
-  out += "\tMean #Measurements: " + std::to_string(meanMeasurements) + "\n";
-  return out;
-}
-
-std::string to_string(LMBPredictProfilerData const& data)
-{
-  std::string out = "LMB Prediction\n";
-  out += "\tDuration: " + std::to_string(to_milliseconds(data._duration)) + "ms\n";
-  out += "\t#Tracks: " + std::to_string(data._numTracks) + "\n";
-  return out;
-}
-std::string to_stringStatistics(std::vector<LMBPredictProfilerData> const& datas)
-{
-  std::string out = "LMB Prediction Statistics\n";
-  Duration meanDuration(0);
-  double meanTracks = 0;
-  for (auto const& data : datas)
-  {
-    meanDuration += data._duration / datas.size();
-    meanTracks += static_cast<double>(data._numTracks) / datas.size();
-  }
-  out += "\tMean Duration: " + std::to_string(to_milliseconds(meanDuration)) + "ms\n";
-  out += "\tMean #Tracks: " + std::to_string(meanTracks) + "\n";
-  return out;
-}
-
-std::string to_string(LMBGroupingProfilerData const& data)
-{
-  std::string out = "LMB Grouping\n";
-  out += "\tDuration: " + std::to_string(to_milliseconds(data._duration)) + "ms\n";
-  out += "\t#Tracks: " + std::to_string(data._numTracks) + "\n";
-  out += "\t#Measurements: " + std::to_string(data._numMesurements) + "\n";
-  out += "\tGroups\n";
-  for (auto const& [numTracks, numMeas] : data._groups_num_tracks_num_meas)
-  {
-    out += "\t\t#Tracks: " + std::to_string(numTracks) + "\t#Mesurements: " + std::to_string(numMeas) + "\n";
-  }
-  out += "\t#NonAssocMeasurements: " + std::to_string(data._numNonAssocMeasurements);
-  return out;
-}
-std::string to_stringStatistics(std::vector<LMBGroupingProfilerData> const& datas)
-{
-  std::string out = "LMB Grouping Statistics\n";
-  double meanDur = 0;
-  double meanTracks = 0;
-  double meanMeasurements = 0;
-  double meanGroups = 0;
-  double meanNonAssoc = 0;
-  std::pair<std::size_t, std::size_t> biggestGroup{ 0, 0 };
-  for (auto const& data : datas)
-  {
-    meanDur += to_milliseconds(data._duration) / datas.size();
-    meanTracks += static_cast<double>(data._numTracks) / datas.size();
-    meanMeasurements += static_cast<double>(data._numMesurements) / datas.size();
-    meanNonAssoc += static_cast<double>(data._numNonAssocMeasurements) / datas.size();
-    auto maxIt = std::ranges::max_element(data._groups_num_tracks_num_meas, [](auto const& a, auto const& b) {
-      return a.first + a.second < b.first + b.second;
-    });
-    if (maxIt != data._groups_num_tracks_num_meas.end())
-    {
-      if (maxIt->first + maxIt->second > biggestGroup.first + biggestGroup.second)
-      {
-        biggestGroup = { maxIt->first, maxIt->second };
-      }
-    }
-    meanGroups += static_cast<double>(data._groups_num_tracks_num_meas.size()) / datas.size();
-  }
-  out += "\tMean Duration: " + std::to_string(meanDur) + "ms\n";
-  out += "\tMean #Tracks: " + std::to_string(meanTracks) + "\n";
-  out += "\tMean #Measurements: " + std::to_string(meanMeasurements) + "\n";
-  out += "\tMean #Groups: " + std::to_string(meanGroups) + "\n";
-  out += "\tBiggest Group #Track: " + std::to_string(biggestGroup.second) +
-         " #Measurements: " + std::to_string(biggestGroup.second) + "\n";
-  out += "\tMean #NonAssocMeasurements: " + std::to_string(meanNonAssoc) + "\n";
-  return out;
-}
-
-LMBDistribution::LMBDistribution(TTBManager* manager) : LMBDistribution(manager, {})
+template <class UDT>
+LMBDistribution<UDT>::LMBDistribution(TTBManager<UDT>* manager, std::vector<StateId> tracks)
+  : _manager{ manager }
+  , _previous_label_ex_probs{ std::chrono::milliseconds(
+        _manager->params()->self_assessment.persistence_prob_estimation.window_length_ms) }
+  , _tracks{ std::move(tracks) }
 {
 }
 
-LMBDistribution::LMBDistribution(TTBManager* manager, std::vector<State> tracks)
-  : _manager{ manager }, _tracks{ std::move(tracks) }
+template <class UDT>
+void LMBDistribution<UDT>::approx_from(GLMBDistribution<UDT> glmb)
 {
-}
-
-void LMBDistribution::convertGLMB2LMB(GLMBDistribution glmb)
-{
-  ZoneScopedNC("LMBDistribution::convertGLMB", tracy_color);
+  ZoneScopedN("LMBDistribution::approx_from");
   LOG_DEB("GLMB -> LMB Conversion");
-  if (glmb._tracks.empty() and glmb._hypotheses.empty())
-  {
-    LOG_DEB("Updated Tracks of GLMB are empty");
-  }
-  LOG_DEB("Convert " << glmb._hypotheses.size() << " GLMB Hypotheses into " << glmb.label2Tracks().size()
-                     << " LMB Tracks");
+  assert(glmb.is_valid());
   _tracks.clear();
-  for (auto const& [label, trackIds] : glmb.label2Tracks())
+  std::vector<StateId> merged_ids;
+  for (auto const& [label, trackIds] : glmb.label_2_tracks())
   {
     assert(not trackIds.empty() and "Label has no corresponding Tracks");
-    Probability const labelExProb{ [&] {
-      double prob = glmb.label2ExProb().at(label);
+    UDT const labelExProb{ [&] {
+      UDT prob = glmb.label_2_ex_prob().at(label);
       LOG_DEB("label in GLMB2LMB conversion: " << label << " #trackIds: " << trackIds.size() << " exProb: " << prob);
       return prob;
     }() };
@@ -186,94 +74,96 @@ void LMBDistribution::convertGLMB2LMB(GLMBDistribution glmb)
       LOG_DEB("Ignore Label: " << label.value_ << " with existenceProb: " << labelExProb);
       continue;
     }
-    State merged_track = std::move(glmb._tracks.at(trackIds.at(0)));
-    assert(merged_track.isValid());
-    Probability trackExProb = glmb.track2ExProb().at(trackIds.at(0));
-    LOG_DEB("mult. state weight of label " << label << " with weight of exProb: " << trackExProb);
-    merged_track.multiplyWeights(trackExProb / labelExProb);
-    if (merged_track._meta_data._lastAssociatedMeasurement == NOT_DETECTED)
-    {
-      merged_track._weight_mis_detection = trackExProb / labelExProb;
-    }
-    std::vector<State> other_states;
-    for (std::size_t i = 1; i < trackIds.size(); ++i)
-    {
-      trackExProb = glmb.track2ExProb().at(trackIds.at(i));
-      LOG_DEB("mult. state weight of label " << label << "  with weight of exProb: " << trackExProb);
+    std::vector<std::pair<UDT, StateId>> for_merging;
 
-      State nextTrack = std::move(glmb._tracks.at(trackIds.at(i)));
-      assert(nextTrack.isValid());
-      nextTrack.multiplyWeights(trackExProb / labelExProb);
-      if (nextTrack._meta_data._lastAssociatedMeasurement == NOT_DETECTED)
-      {
-        merged_track._weight_mis_detection = trackExProb / labelExProb;
-      }
-      LOG_DEB("nextTrack with label: " << label << nextTrack.toString());
-      other_states.push_back(std::move(nextTrack));
+    std::vector<State<UDT>> other_states;
+    for (StateId state_id : trackIds)
+    {
+      for_merging.emplace_back(glmb.track_2_ex_prob().at(state_id) / labelExProb, state_id);
     }
     LOG_DEB("#other states: " << other_states.size() << " of label " << label);
-    merged_track.merge(std::move(other_states));
-    merged_track._existenceProbability = labelExProb;
+    State merged_track = ttb::merge(*_manager, for_merging);
+    merged_track._type = [&] {
+      STATE_TYPE type = _manager->get_state(for_merging.front().second)._type;
+      return type;
+    }();
     if (not merged_track.isEmpty())
     {
+      merged_track.postProcess();
       assert(merged_track.isValid());
-      _tracks.push_back(std::move(merged_track));
+      StateId const merged_id = merged_track._id;
+      _manager->database().states.insert(std::move(merged_track));
+      _manager->database().state_existences.emplace(merged_id, labelExProb);
+      merged_ids.push_back(merged_id);
     }
   }
-  LOG_DEB("LMB after conversion:\n" << toString());
-  assert(isValid());
+  _tracks = std::move(merged_ids);
+  LOG_DEB("LMB after conversion:\n" << to_string());
+  assert(is_valid());
 }
 
-double LMBDistribution::estimatedNumberOfTracks() const
+template <class UDT>
+UDT LMBDistribution<UDT>::estimated_number_of_tracks() const
 {
-  return std::accumulate(_tracks.begin(), _tracks.end(), 0.0, [](double old, State const& track) {
-    return old + track._existenceProbability;
+  return std::accumulate(_tracks.begin(), _tracks.end(), UDT{ 0.0 }, [&](UDT old, StateId const& id) {
+    return old + _manager->get_state_existence_probability(id);
   });
 }
 
-Vector LMBDistribution::cardinalityDistribution() const
+template <class UDT>
+Vector<UDT> LMBDistribution<UDT>::cardinality_distribution() const
 {
-  Vector cardDist{ { 1 } };
-  for (auto const& track : _tracks)
+  ZoneScopedN("LMBDistribution::cardinality_distribution");
+  Vector<UDT> cardDist{ { 1 } };
+  for (auto const& id : _tracks)
   {
-    double r = track._existenceProbability;
-    Vector convKernel{ { 1 - r, r } };
-    cardDist = numeric::fold(cardDist, convKernel);
+    UDT const r = _manager->get_state_existence_probability(id);
+    Vector<UDT> convKernel{ { 1 - r, r } };
+    cardDist = numeric::fold<UDT>(cardDist, convKernel);
   }
   return cardDist;
 }
 
-std::vector<State> LMBDistribution::getEstimate() const
+template <class UDT>
+std::vector<StateId> LMBDistribution<UDT>::all_tracks() const
 {
-  std::vector<State> out;
-  switch (_manager->params().lmb_distribution.extraction.type)
+  return _tracks;
+}
+
+template <class UDT>
+std::vector<BernoulliState<UDT>> LMBDistribution<UDT>::get_estimate() const
+{
+  // hpx::tracy::region("LMBDistribution::getEstimate", 0, 0);
+  std::vector<BernoulliState<UDT>> out;
+  switch (_manager->params()->lmb_distribution.extraction.type)
   {
     case MO_DISTRIBUTION_EXTRACTION_TYPE::EXISTENCE_PROBABILITY:
     {
-      for (State const& track : _tracks)
+      for (StateId const& id : _tracks)
       {
-        if (track._existenceProbability > _manager->params().lmb_distribution.extraction.threshold)
+        if (_manager->get_state_existence_probability(id) > _manager->params()->lmb_distribution.extraction.threshold)
         {
-          out.push_back(track);
+          out.emplace_back(_manager->get_state(id), _manager->get_state_existence_probability(id));
         }
       }
       return out;
     }
     case MO_DISTRIBUTION_EXTRACTION_TYPE::CARDINALITY:
     {
-      Vector cardDist = cardinalityDistribution();
+      Vector<UDT> cardDist = cardinality_distribution();
       Index const maxCard = std::distance(cardDist.begin(), std::ranges::max_element(cardDist));
 
       // sort trackMap by existence Prob in descending order
       std::vector<std::size_t> inds(_tracks.size());
       std::iota(inds.begin(), inds.end(), 0);
       std::ranges::sort(inds, [&](std::size_t a, std::size_t b) {
-        return _tracks.at(a)._existenceProbability > _tracks.at(b)._existenceProbability;
+        return _manager->get_state_existence_probability(_tracks.at(a)) >
+               _manager->get_state_existence_probability(_tracks.at(b));
       });
 
       for (Index i = 0; i < maxCard; ++i)
       {
-        out.push_back(_tracks.at(i));
+        out.emplace_back(_manager->get_state(_tracks.at(i)), _manager->get_state_existence_probability(_tracks.at(i)));
       }
       return out;
     }
@@ -283,200 +173,334 @@ std::vector<State> LMBDistribution::getEstimate() const
       return out;
     }
   }
-  LOG_FATAL("Something serious wrong going on");
-  return {};
+  std::unreachable();
 }
 
-std::size_t LMBDistribution::truncate(std::size_t maxNTracks)
+template <class UDT>
+std::pair<UDT, std::size_t> LMBDistribution<UDT>::truncate(std::size_t maxNTracks)
 {
   if (_tracks.size() > maxNTracks)
   {
     std::size_t const before = _tracks.size();
-    std::ranges::sort(_tracks,
-                      [](State const& a, State const& b) { return a._existenceProbability < b._existenceProbability; });
-    _tracks.erase(std::next(_tracks.begin(), maxNTracks), _tracks.end());
-    return before - _tracks.size();
-  }
-  return 0;
-}
-
-void LMBDistribution::resetPriorId()
-{
-  std::ranges::for_each(_tracks, [&](State& track) { track.resetPriorId(); });
-}
-
-void LMBDistribution::predict(Duration deltaT, EgoMotionDistribution const& egoDist)
-{
-  ZoneScopedNC("LMBDistribution::predict", tracy_color);
-  LOG_DEB("Predict LMB Distribution with " + std::to_string(_tracks.size()) + " Tracks");
-  utils::predict(_manager, _tracks, deltaT, egoDist, {}, [&](State& state) {
-    double const survival_probability = _manager->getPersistenceModel().getPersistenceProbability(state, deltaT);
-    state._existenceProbability *= survival_probability;
-  });
-  postProcessPrediction();
-}
-
-void LMBDistribution::update(Groups groups)
-{
-  ZoneScopedNC("LMBDistribution::group_update", tracy_color);
-  assert(not groups.empty() and "invalid group size");
-  if (_manager->params().thread_pool_size > 0 and
-      _manager->params().lmb_distribution.calculate_single_sensor_group_updates_parallel)
-  {
-    LOG_DEB("parallel group update");
-    _manager->thread_pool().detach_loop(std::size_t{ 0 }, groups.size(), [&](std::size_t i) {
-      groups.at(i).first.single_group_update(groups.at(i).second);
+    std::ranges::sort(_tracks, [&](StateId const& a, StateId const& b) {
+      return _manager->get_state_existence_probability(a) > _manager->get_state_existence_probability(b);
     });
-    _manager->thread_pool().wait();
-  }
-  else
-  {
-    LOG_DEB("sequential group update");
-    for (std::size_t i = 0; i != groups.size(); i++)
+    UDT weight_sum = 0;
+    UDT pruned_weight = 0;
+    for (auto [id, state] : std::views::enumerate(_tracks))
     {
-      groups.at(i).first.single_group_update(groups.at(i).second);
-    }
-  }
-  for (std::size_t i = 1; i < groups.size(); ++i)
-  {
-    groups.at(0).first.merge(std::move(groups.at(i).first));
-  }
-  *this = std::move(groups.at(0).first);
-}
-
-void LMBDistribution::update(MeasurementContainer const& measurementContainer)
-{
-  ZoneScopedNC("LMBDistribution::update", tracy_color);
-  if (_manager->params().lmb_distribution.use_grouping)
-  {
-    LOG_DEB("use grouping");
-    std::vector<grouping::Group> groups = grouping::group(_tracks, measurementContainer);
-    Groups lmb_groups;
-    for (auto& [tracks, measurement_container] : groups)
-    {
-      lmb_groups.emplace_back(LMBDistribution(_manager, std::move(tracks)), std::move(measurement_container));
-    }
-    update(std::move(lmb_groups));
-    postProcessUpdate();
-  }
-  else
-  {
-    LOG_DEB("no grouping");
-    single_group_update(measurementContainer);
-    postProcessUpdate();
-  }
-  if (_manager->params().show_gui)
-  {
-    double assoc = 0;
-    for (auto const& [meas_id, assoc_prob] : meas_assignment_prob())
-    {
-      assoc += assoc_prob;
-    }
-    {
-      std::lock_guard lock(_manager->vizu().add_data_mutex);
-      _manager->vizu()._meas_model_data[measurementContainer._id]._num_assoc_measurements.emplace_back(
-          measurementContainer._time, assoc);
-    }
-    auto tracks = getEstimate();
-    std::map<COMPONENT, std::pair<double, std::size_t>> nis_values;
-    for (State const& track : tracks)
-    {
-      double best_weight = 0;
-      std::map<COMPONENT, double> track_nis;
-      for (auto const& [model_nis, data] : track._nis)
+      weight_sum += _manager->get_state_existence_probability(state);
+      if (id >= maxNTracks)
       {
-        for (auto const& [weight, values] : data)
-        {
-          if (weight > best_weight)
-          {
-            best_weight = weight;
-            track_nis = values;
-          }
-        }
-      }
-      for (auto const& [comp, nis] : track_nis)
-      {
-        nis_values[comp] = { nis_values[comp].first + nis, nis_values[comp].second + 1 };
+        pruned_weight += _manager->get_state_existence_probability(state);
       }
     }
-    std::lock_guard lock(_manager->vizu().add_data_mutex);
-    for (auto const& [comp, nis_dof] : nis_values)
-    {
-      _manager->vizu()._meas_model_data[measurementContainer._id]._nis_dof[comp].emplace_back(
-          measurementContainer._time, nis_dof.first, nis_dof.second);
-    }
+    _tracks.erase(std::next(_tracks.begin(), maxNTracks), _tracks.end());
+    return { pruned_weight / weight_sum, before - _tracks.size() };
   }
+  return { UDT{ 0.0 }, 0 };
 }
 
-void LMBDistribution::single_group_update(MeasurementContainer const& measurementContainer)
+template <class UDT>
+void LMBDistribution<UDT>::predict(Duration deltaT, PredictionInformation const& prediction_info)
 {
-  ZoneScopedNC("LMBDistribution::single_group_lbp_update", tracy_color);
-  switch (_manager->params().lmb_distribution.update_method)
+  TracyFiberEnter("LMBDistribution::predict");
+  TracyCZoneN(ctx, "LMBDistribution::predict", 1);
+  LOG_DEB("Predict LMB Distribution with " + std::to_string(_tracks.size()) + " Tracks");
+  if (deltaT < 1ms)
+  {
+    TracyFiberEnter("LMBDistribution::predict");
+    TracyCZoneEnd(ctx);
+    return;
+  }
+  _previous_label_ex_probs.insert(_manager->filter_time(), [&] {
+    std::map<Label, UDT> ex_probs;
+    for (StateId id : _tracks)
+    {
+      State<UDT> const& state = _manager->get_state(id);
+      ex_probs.emplace(state._label, _manager->get_state_existence_probability(id));
+    }
+    return ex_probs;
+  }());
+  std::unordered_map<StateId, StateId> const predicted_ids =
+      utils::predict_db(_manager, _tracks, deltaT, prediction_info._egoMotion);
+  _tracks.clear();
+  for (auto const& [old, predicted] : predicted_ids)
+  {
+    if (predicted != EMPTY_STATE)
+    {
+      State<UDT> const& old_state = _manager->get_state(old);
+      UDT const survival_probability =
+          _manager->getPersistenceModel().getPersistenceProbability(old_state, deltaT, prediction_info._roi);
+      _manager->database().state_existences.emplace(
+          predicted, _manager->get_state_existence_probability(old) * survival_probability);
+      _tracks.push_back(predicted);
+    }
+  }
+  post_process_prediction();
+  TracyFiberEnter("LMBDistribution::predict");
+  TracyCZoneEnd(ctx);
+}
+
+template <class UDT>
+std::pair<std::vector<Matrix<UDT>>, Duration> LMBDistribution<UDT>::surviving_distribution()
+{
+  ZoneScopedN("LMBDistribution::surviving_distribution");
+  // assert (Called after update)
+  if (_previous_label_ex_probs.data_buffer.empty())
+  {
+    return { { Matrix<UDT>::Zero(1, 1) }, 1s };
+  }
+  std::vector<Matrix<UDT>> independent_data;
+  for (auto const& [label, ex_prob_before] : _previous_label_ex_probs.data_buffer.front().data)
+  {
+    UDT const rb = ex_prob_before;
+    auto const ait =
+        std::ranges::find_if(_tracks, [&](StateId aid) { return _manager->get_state(aid)._label == label; });
+    auto const [ra, PS] = [&] {
+      UDT ps = std::pow(_manager->params()->persistence_model.constant.persistence_prob,
+                        to_seconds(_manager->filter_time() - _previous_label_ex_probs.data_buffer.front().time));
+      if (ait != _tracks.end())
+      {
+        return std::pair{ _manager->get_state_existence_probability(*ait), ps };
+      }
+      return std::pair{ UDT{ 0.0 }, ps };
+    }();
+    Matrix<UDT> const mult{ { std::log((1 - ra) * (1 - rb) / (1)), std::log((1 - ra) * rb / (1)) },
+                            { std::log(ra), std::log(0.0) } };
+    independent_data.push_back(std::move(mult));
+  }
+  return { std::move(independent_data), _manager->filter_time() - _previous_label_ex_probs.data_buffer.front().time };
+}
+
+template <class UDT>
+void LMBDistribution<UDT>::update(DataSourceContainer<UDT> const& measurementContainer, bool do_innovate)
+{
+  TracyFiberEnter("LMBDistribution::update");
+  TracyCZoneN(ctx, "LMBDistribution::update", 1);
+  if (do_innovate)
+  {
+    innovate(std::span{ &measurementContainer, 1 });
+  }
+  clear_update_metadata();
+  assert(is_valid());
+  switch (_manager->params()->lmb_distribution.update_method)
   {
     case LMB_UPDATE_METHOD::GLMB:
+    {
       single_group_glmb_update(measurementContainer);
-      return;
+      break;
+    }
     case LMB_UPDATE_METHOD::LBP:
+    {
       single_group_lbp_update(measurementContainer);
-      return;
+      break;
+    }
+      assert(false);
+      std::unreachable();
   }
-  DEBUG_ASSERT_MARK_UNREACHABLE;
+  post_process_update();
+  assert(is_valid());
+  TracyFiberEnter("LMBDistribution::update");
+  TracyCZoneEnd(ctx);
 }
 
-void LMBDistribution::single_group_lbp_update(MeasurementContainer const& measurementContainer)
+template <class UDT>
+void LMBDistribution<UDT>::update(std::vector<DataSourceContainer<UDT>> const& data_source_containers)
 {
-  ZoneScopedNC("LMBDistribution::single_group_lbp_update", tracy_color);
-  std::size_t const L = _tracks.size();
+  TracyFiberEnter("LMBDistribution::update");
+  TracyCZoneN(ctx, "LMBDistribution::update", 1);
+  // hpx::tracy::region("LMBDistribution::ms_update", 0, 0);
+  bool const disable =
+      data_source_containers.size() > 1 and
+      (_manager->params()->lmb_distribution.multi_sensor.method == LMB_MULTI_SENSOR_UPDATE_METHOD::FPM or
+       (_manager->params()->lmb_distribution.multi_sensor.method == LMB_MULTI_SENSOR_UPDATE_METHOD::GLMB and
+        _manager->params()->glmb_distribution.multi_sensor.method == GLMB_MULTI_SENSOR_UPDATE_METHOD::PM));
+  if (disable)
+  {
+    disable_state_distribution_post_processing();
+  }
+
+  innovate(data_source_containers);
+
+  clear_update_metadata();
+
+  switch (_manager->params()->lmb_distribution.multi_sensor.method)
+  {
+    case LMB_MULTI_SENSOR_UPDATE_METHOD::GLMB:
+    {
+      single_group_glmb_update(data_source_containers);
+      break;
+    }
+    case LMB_MULTI_SENSOR_UPDATE_METHOD::FPM:
+    {
+      single_group_fpm_update(data_source_containers);
+      break;
+    }
+    case LMB_MULTI_SENSOR_UPDATE_METHOD::PU:
+    {
+      single_group_pu_update(data_source_containers);
+      break;
+    }
+  }
+  if (disable)
+  {
+    reset_state_distribution_post_processing();
+  }
+  post_process_update();
+  assert(is_valid());
+  TracyFiberEnter("LMBDistribution::update");
+  TracyCZoneEnd(ctx);
+}
+
+template <class UDT>
+void LMBDistribution<UDT>::single_group_glmb_update(std::vector<DataSourceContainer<UDT>> const& data_source_containers)
+{
+  for (StateId track : _tracks)
+  {
+    /// tracks are already predicted, use existence prob
+    /// as survival prob for GLMB
+    _manager->database().state_persistences.emplace(track, _manager->get_state_existence_probability(track));
+  }
+  GLMBDistribution glmbDist(_manager);
+  glmbDist.add_tracks(_tracks);
+  glmbDist.update(data_source_containers, true, false);
+  LOG_DEB("GLMB Dist after update:\n" << glmbDist.to_string());
+  for (DataSourceContainer<UDT> const& data_source_container : data_source_containers)
+  {
+    assert(not _meas_assignment_prob.contains(data_source_container._id));
+    _meas_assignment_prob[data_source_container._id] = glmbDist.meas_assignment_prob(data_source_container);
+  }
+  approx_from(std::move(glmbDist));
+  LOG_DEB("LMB Dist after update:\n" << to_string());
+  assert(is_valid() && "after update");
+}
+
+template <class UDT>
+void LMBDistribution<UDT>::single_group_fpm_update(std::vector<DataSourceContainer<UDT>> const& data_source_containers)
+{
+  std::vector<LMBDistribution<UDT>> posteriors;
+  Params next_params = *_manager->params();
+  next_params.lmb_distribution.post_process_update.enable =
+      false;  // do not remove tracks after single sensor updates...
+  _manager->update_params(next_params);
+  for (DataSourceContainer<UDT> const& data_source_container : data_source_containers)
+  {
+    LMBDistribution lmb = *this;
+    lmb.update(data_source_container, false);
+    _meas_assignment_prob[data_source_container._id] = lmb.meas_assignment_prob(data_source_container);
+    posteriors.push_back(std::move(lmb));
+  }
+  next_params.lmb_distribution.post_process_update.enable =
+      _manager->original_params().lmb_distribution.post_process_update.enable;  // do not remove tracks after single
+                                                                                // sensor updates...
+  _manager->update_params(std::move(next_params));
+  reset_state_distribution_post_processing();
+  fpm_fusion(std::move(posteriors));
+}
+
+template <class UDT>
+void LMBDistribution<UDT>::single_group_pu_update(std::vector<DataSourceContainer<UDT>> const& data_source_containers)
+{
+  std::vector<LMBDistribution> posteriors;
+  Params next_params = *_manager->params();
+  next_params.lmb_distribution.post_process_update.enable =
+      false;  // do not remove tracks after single sensor updates...
+  _manager->update_params(next_params);
+  for (DataSourceContainer<UDT> const& data_source_container : data_source_containers)
+  {
+    LMBDistribution lmb = *this;
+    lmb.update(data_source_container, false);
+    _meas_assignment_prob[data_source_container._id] = lmb.meas_assignment_prob(data_source_container);
+    posteriors.push_back(std::move(lmb));
+  }
+  next_params.lmb_distribution.post_process_update.enable =
+      _manager->original_params().lmb_distribution.post_process_update.enable;  // do not remove tracks after single
+  // sensor updates...
+  _manager->update_params(std::move(next_params));
+  reset_state_distribution_post_processing();
+  pu_fusion(std::move(posteriors));
+}
+
+template <class UDT>
+void LMBDistribution<UDT>::single_group_lbp_update(DataSourceContainer<UDT> const& measurementContainer)
+{
+  TracyFiberEnter("LMBDistribution::single_group_lbp_update");
+  TracyCZoneN(ctx, "LMBDistribution::single_group_lbp_update", 1);
+  LOG_DEB(std::format("LMBDistribution::single_group_lbp_update of {} tracks with {} measurements",
+                      _tracks.size(),
+                      measurementContainer._measurements.size()));
+  Index const L = std::ssize(_tracks);
   if (L == 0)
   {
     _meas_assignment_prob = [&] {
-      std::map<MeasurementId, Probability> rz;
-      for (Measurement const& meas : measurementContainer._data)
+      LOG_DEB("no tracks -> create rz map");
+      std::map<DataSourceContainerId, std::map<MeasurementId, UDT>> rz;
+      rz[measurementContainer._id];
+      for (State<UDT> const& meas : measurementContainer._measurements)
       {
-        rz[meas._id] = 0;
+        rz.at(measurementContainer._id)[meas._id] = 0;
       }
       return rz;
     }();
-    sa::ClutterDetectionDistribution stats = sa::compute_dists(_tracks, measurementContainer._data.size());
-    _clutter_dist = std::move(stats.clutter_dist);
-    _detection_dist = std::move(stats.detection_dist);
+    assert(is_valid());
+    LOG_DEB("LMBDistribution::single_group_lbp_update");
+    TracyFiberEnter("LMBDistribution::single_group_lbp_update");
+    TracyCZoneEnd(ctx);
     return;
   }
-  auto const M = static_cast<Index>(measurementContainer._data.size());
+  auto const M = static_cast<Index>(measurementContainer._measurements.size());
   Index const not_detected = M;
   Index const not_existent = M + 1;
-  Matrix XI(L, M + 2);
-  Matrix NU = Matrix::Ones(M + 2, L);
-  Matrix BETA = Matrix::Zero(L, M + 2);
+  Matrix<UDT> XI(L, M + 2);
+  Matrix<UDT> NU = Matrix<UDT>::Ones(M + 2, L);
+  Matrix<UDT> BETA = Matrix<UDT>::Zero(L, M + 2);
   std::vector<std::size_t> estimated_tracks_ind;
-  for (auto const& [l, state] : std::views::enumerate(_tracks))
+  for (auto const& [l, state_id] : std::views::enumerate(_tracks) | std::views::as_const)
   {
-    Innovation const& innovation = state._innovation.at(measurementContainer._id);
-    for (auto const& [m, meas] : std::views::enumerate(measurementContainer._data))
+    State<UDT> const& state = _manager->get_state(state_id);
+    UDT const state_existence = _manager->get_state_existence_probability(state_id);
+    UDT const detection_prob = [&] {
+      auto const it = _manager->database().state_detection_probabilities.template get<StateIdContainerId>().find(
+          std::tuple{ state_id, measurementContainer._id });
+      assert(it != _manager->database().state_detection_probabilities.template get<StateIdContainerId>().end());
+      return it->detection_probability;
+    }();
+    for (auto const& [m, meas] : std::views::enumerate(measurementContainer._measurements))
     {
-      if (innovation._updates.contains(meas._id))
+      if (_manager->database().state_updates.contains(std::tuple{ state._id, measurementContainer._id, meas._id }))
       {
-        BETA(l, m) = state._existenceProbability * std::exp(innovation._updates.at(meas._id).log_likelihood) *
-                     innovation._detectionProbability / innovation._updates.at(meas._id).clutter_intensity;
+        UDT const log_likelihood = [&] {
+          auto const it = _manager->database().state_meas_log_likelihood.find(std::tuple{ state_id, meas._id });
+          assert(it != _manager->database().state_meas_log_likelihood.end());
+          return it->meas_log_likelihood;
+        }();
+        UDT const clutter_intensity = [&] {
+          auto const it = _manager->database().meas_clutter_intensity.find(meas._id);
+          assert(it != _manager->database().meas_clutter_intensity.end());
+          return it->clutter_intensity;
+        }();
+        BETA(l, m) = state_existence * std::exp(log_likelihood) * detection_prob / clutter_intensity;
       }
     }
-    BETA(l, not_detected) = state._existenceProbability * (1 - innovation._detectionProbability);
-    BETA(l, not_existent) = 1 - state._existenceProbability;
+    BETA(l, not_detected) = state_existence * (1 - detection_prob);
+    BETA(l, not_existent) = 1 - state_existence;
   }
   bool converged = false;
-  double convergence_crit = std::numeric_limits<double>::infinity();
+  UDT convergence_crit = UDT{ std::numeric_limits<double>::infinity() };
   for (std::size_t iteration = 0;
-       not converged and iteration < _manager->params().lmb_distribution.loopy_belief_propagation.max_iterations;
+       not converged and iteration < _manager->params()->lmb_distribution.loopy_belief_propagation.max_iterations;
        ++iteration)
   {
-    Matrix const& BETA_RED = BETA(Eigen::all, Eigen::seq(0, M - 1));
-    Matrix const& NU_RED = NU(Eigen::seq(0, M - 1), Eigen::all);
-    Vector DENUM = (BETA_RED * NU_RED).diagonal() + BETA(Eigen::all, not_existent) + BETA(Eigen::all, not_detected);
+    Matrix<UDT> const& BETA_RED = BETA(Eigen::all, Eigen::seq(0, M - 1));
+    Matrix<UDT> const& NU_RED = NU(Eigen::seq(0, M - 1), Eigen::all);
+    Vector<UDT> DENUM =
+        (BETA_RED * NU_RED).diagonal() + BETA(Eigen::all, not_existent) + BETA(Eigen::all, not_detected);
     XI(Eigen::all, Eigen::seq(0, M - 1)) =
         BETA_RED.array() / (DENUM.replicate(1, M).array() - BETA_RED.array() * NU_RED.transpose().array());
     XI(Eigen::all, { not_detected, not_existent }) =
         BETA(Eigen::all, { not_detected, not_existent }).array() / DENUM.replicate(1, 2).array();
-    Matrix NU_Update = (1 / (1 + (XI.colwise().sum().replicate(L, 1) - XI).array())).transpose();
+    Matrix<UDT> NU_Update = (1 / (1 + (XI.colwise().sum().replicate(L, 1) - XI).array())).transpose();
     convergence_crit = (NU - NU_Update).array().abs().sum() / NU.array().abs().sum();
     assert([&] {  // NOLINT
       if (not std::isfinite(convergence_crit))
@@ -484,11 +508,12 @@ void LMBDistribution::single_group_lbp_update(MeasurementContainer const& measur
         LOG_FATAL("NU " << NU);
         LOG_FATAL("NU_UPDATE" << NU_Update);
         LOG_FATAL("Criteria " << convergence_crit);
+        LOG_FATAL("Beta" << BETA);
         return false;
       }
       return true;
     }());
-    if (convergence_crit < _manager->params().lmb_distribution.loopy_belief_propagation.tol)
+    if (convergence_crit < _manager->params()->lmb_distribution.loopy_belief_propagation.tol)
     {
       converged = true;
       TracyPlot("#LBP Iterations", static_cast<int64_t>(iteration));
@@ -498,1102 +523,495 @@ void LMBDistribution::single_group_lbp_update(MeasurementContainer const& measur
   if (not converged)
   {
     TracyPlot("#LBP Iterations",
-              static_cast<int64_t>(_manager->params().lmb_distribution.loopy_belief_propagation.max_iterations));
+              static_cast<int64_t>(_manager->params()->lmb_distribution.loopy_belief_propagation.max_iterations));
     LOG_WARN_THROTTLE(10,
                       "LBP not converged after " +
-                          std::to_string(_manager->params().lmb_distribution.loopy_belief_propagation.max_iterations) +
+                          std::to_string(_manager->params()->lmb_distribution.loopy_belief_propagation.max_iterations) +
                           " Convergence criteria: " + std::to_string(convergence_crit) + " <! " +
-                          std::to_string(_manager->params().lmb_distribution.loopy_belief_propagation.tol) +
+                          std::to_string(_manager->params()->lmb_distribution.loopy_belief_propagation.tol) +
                           " not satisfied");
   }
-  Matrix P(L, M + 2);
+  Matrix<UDT> P(L, M + 2);
   P(Eigen::all, Eigen::seq(0, M - 1)) =
       BETA(Eigen::all, Eigen::seq(0, M - 1)).array() * NU(Eigen::seq(0, M - 1), Eigen::all).transpose().array();
   P(Eigen::all, { not_detected, not_existent }) = BETA(Eigen::all, { not_detected, not_existent });
   P(Eigen::all, Eigen::all).array() /= P.rowwise().sum().replicate(1, M + 2).array();
-  std::map<MeasurementId, double> assignment_any_track;
-  for (auto const& [m, meas] : std::views::enumerate(measurementContainer._data))
+  std::map<MeasurementId, UDT> assignment_any_track;
+  for (auto const& [m, meas] : std::views::enumerate(measurementContainer._measurements))
   {
     assignment_any_track[meas._id] = 1.0 - 1.0 / (1 + XI.col(m).sum());
   }
+  LOG_DEB("LBP done");
   // update state
-  std::vector<State> updated_states;
-  for (auto const& [l, state] : std::views::enumerate(_tracks))
+  std::vector<hpx::future<State<UDT>>> merged_states;
+  std::vector<UDT> merged_states_existence_probs;
+  for (auto const& [l, state_id] : std::views::enumerate(_tracks))
   {
-    assert(not state._innovation.at(measurementContainer._id)._updates.empty());
-    auto& [meas_id, update] = *state._innovation.at(measurementContainer._id)._updates.begin();
-    State mergedState = std::move(update.updated_dist);
-    Index const m = std::distance(measurementContainer._data.begin(),
-                                  std::ranges::find_if(measurementContainer._data, [meas_id](Measurement const& meas) {
-                                    return meas._id == meas_id;
-                                  }));
-    double const weight = P(l, m);
-    assert(weight >= 0 and weight <= 1);
-    mergedState._existenceProbability = weight;
-    mergedState.multiplyWeights(weight);
-    mergedState.multiplyNisWeights(weight);
-
-    if (meas_id == NOT_DETECTED)
+    std::vector<std::pair<UDT, StateId>> for_merging;
+    for (auto const& [m, meas] : std::views::enumerate(measurementContainer._measurements))
     {
-      mergedState._weight_mis_detection = weight;
-    }
-    for (auto& [next_meas_id, next_update] : state._innovation.at(measurementContainer._id)._updates)
-    {
-      if (meas_id == next_meas_id)
+      if (_manager->database().state_updates.contains(std::tuple{ state_id, measurementContainer._id, meas._id }))
       {
-        continue;
-      }
-      Index const next_m =
-          std::distance(measurementContainer._data.begin(),
-                        std::ranges::find_if(measurementContainer._data, [next_meas_id](Measurement const& meas) {
-                          return meas._id == next_meas_id;
-                        }));
-      double const next_weight = P(l, next_m);
-      assert(next_weight >= 0 and next_weight <= 1);
-      next_update.updated_dist.multiplyWeights(next_weight);
-      next_update.updated_dist.multiplyNisWeights(next_weight);
-      mergedState.merge(std::move(next_update.updated_dist));
-
-      mergedState._existenceProbability += next_weight;
-      if (next_meas_id == NOT_DETECTED)
-      {
-        mergedState._weight_mis_detection = next_weight;
+        for_merging.emplace_back(P(l, m),
+                                 _manager->database()
+                                     .state_updates.find(std::tuple{ state_id, measurementContainer._id, meas._id })
+                                     ->updated_state_id);
       }
     }
-    if (mergedState._existenceProbability > 1 + 1e-5)
+    for_merging.emplace_back(P(l, not_detected),
+                             _manager->database()
+                                 .state_updates.find(std::tuple{ state_id, measurementContainer._id, NOT_DETECTED })
+                                 ->updated_state_id);
+
+    UDT const merged_state_existence = [&] {
+      UDT ex = std::accumulate(for_merging.begin(), for_merging.end(), UDT{ 0.0 }, [&](UDT first, auto const& val) {
+        return first + val.first;
+      });
+      if (ex > 1 or ex < 0)
+      {
+        LOG_WARN_THROTTLE(1,
+                          "merged state existence prob not in [0, 1]: " << ex << " in update of sensor: "
+                                                                        << measurementContainer._source_id.value_);
+        ex = std::clamp(ex, UDT{ 0.0 }, UDT{ 1.0 });
+      }
+      return ex;
+    }();
+    merged_states_existence_probs.push_back(merged_state_existence);
+    merged_states.emplace_back(hpx::async([&, for_merging] { return ttb::merge(*_manager, for_merging); }));
+  }
+  std::vector<StateId> updated_states;
+  for (auto const& [state_fut, ex_prob] : std::views::zip(merged_states, merged_states_existence_probs))
+  {
+    State merged_state = state_fut.get();
+    if (not merged_state.isEmpty())
     {
-      LOG_WARN("created existence prob > 1 + 1e-5. Clamp to 1.");
-      mergedState._existenceProbability = 1;
+      assert(merged_state.isValid());
+      StateId const id = merged_state._id;
+      _manager->database().states.insert(std::move(merged_state));
+      _manager->database().state_existences.emplace(id, ex_prob);
+      updated_states.push_back(id);
     }
-    else if (mergedState._existenceProbability > 1)
-    {
-      mergedState._existenceProbability = 1;
-    }
-    assert(mergedState._existenceProbability >= 0 and mergedState._existenceProbability <= 1);
-    mergedState.multiplyWeights(1 / mergedState.sumWeights());
-    updated_states.push_back(std::move(mergedState));
   }
   _tracks = std::move(updated_states);
-  _meas_assignment_prob = std::move(assignment_any_track);
-  sa::ClutterDetectionDistribution stats = sa::compute_dists(_tracks, measurementContainer._data.size());
-  _clutter_dist = std::move(stats.clutter_dist);
-  _detection_dist = std::move(stats.detection_dist);
+  _meas_assignment_prob[measurementContainer._id] = std::move(assignment_any_track);
+  assert(is_valid());
+  LOG_DEB("LMBDistribution::single_group_lbp_update");
+  TracyFiberEnter("LMBDistribution::single_group_lbp_update");
+  TracyCZoneEnd(ctx);
 }
 
-void LMBDistribution::single_group_glmb_update(MeasurementContainer const& measurementContainer)
+template <class UDT>
+void LMBDistribution<UDT>::single_group_glmb_update(DataSourceContainer<UDT> const& measurementContainer)
 {
-  ZoneScopedNC("LMBDistribution::single_group_glmb_update", tracy_color);
-  LOG_DEB("Update LMB Distribution: " << toString());
-  GLMBDistribution glmbDist(_manager, std::move(_tracks));
-  glmbDist.update(measurementContainer);
-  _meas_assignment_prob = glmbDist.probOfAssigment(measurementContainer);
-  _clutter_dist = glmbDist.clutter_distribution(static_cast<Index>(measurementContainer._data.size()));
-  _detection_dist = glmbDist.detection_distribution();
-  LOG_DEB("GLMB Dist after update:\n" << glmbDist.toString());
-  convertGLMB2LMB(std::move(glmbDist));
-  LOG_DEB("LMB Dist after update:\n" << toString());
-  assert(isValid() && "after update");
+  // hpx::tracy::region("LMBDistribution::single_group_glmb_update", 0, 0);
+  LOG_DEB("Update LMB Distribution: " << to_string());
+  for (StateId track : _tracks)
+  {
+    /// tracks are already predicted, use existence prob
+    /// as survival prob for GLMB
+    _manager->database().state_persistences.emplace(track, _manager->get_state_existence_probability(track));
+  }
+  GLMBDistribution glmbDist(_manager);
+  glmbDist.add_tracks(_tracks);
+  glmbDist.update(measurementContainer, false);
+  _meas_assignment_prob[measurementContainer._id] = glmbDist.meas_assignment_prob(measurementContainer);
+  LOG_DEB("GLMB Dist after update:\n" << glmbDist.to_string());
+  approx_from(std::move(glmbDist));
+  LOG_DEB("LMB Dist after update:\n" << to_string());
+  assert(is_valid() && "after update");
 }
 
-void LMBDistribution::fpm_fusion(std::vector<LMBDistribution>&& updated_lmbs, bool isDynamicBirth)
+template <class UDT>
+void LMBDistribution<UDT>::fpm_fusion(std::vector<LMBDistribution<UDT>> posterior_lmbs)
 {
   ZoneScopedN("LMBDistribution::fpm_fusion");
-  LOG_DEB("FPM fusion with " << updated_lmbs.size()
-                             << " single-sensor updated lmb densities. Is is dynamic birth?: " << isDynamicBirth);
-  if (_manager->params().filter.lmb_fpm.sensor_number != updated_lmbs.size() && !isDynamicBirth)
+  LOG_DEB("FPM fusion with " << posterior_lmbs.size() << " single-sensor updated lmb densities.");
+  if (posterior_lmbs.size() == 1)
   {
-    LOG_ERR("number of updated lmb densities does not fit to number of sensors");
-  }
-  LMBDistribution fusedLMB(_manager);
-  if (updated_lmbs.size() == 1)
-  {
-    ZoneScopedN("LMB_FPM_Tracker::fusion_single_sensor_case");
-    // no fusion is needed since only one sensor update is given
-    _tracks.clear();
-    merge(updated_lmbs.at(0));
+    LOG_DEB("single sensor case");
+    *this = std::move(posterior_lmbs.at(0));
     return;
   }
 
-  // FPM-LMB fusion of lmb dists
-  std::vector<Label> prior_labels;
-
-  // sort prior and local posterior tracks depending on their label
-  std::map<Label, std::vector<State>> label2UpdatedTracksMap;
-  std::map<Label, std::vector<State>> label2PriorTracksMap;
-  std::stringstream priorLabelsStr;
+  // this state created the following posteriors
+  std::map<StateId, std::vector<StateId>> prior_2_posteriors;
+  for (LMBDistribution& posterior_lmb : posterior_lmbs)
   {
-    ZoneScopedN("LMB_FPM_Tracker::fpmFusion_fillMaps");
-    for (const auto& track_prior : _tracks)
+    for (StateId posterior : posterior_lmb._tracks)
     {
-      auto it = label2PriorTracksMap.find(track_prior._label);
-      if (it != label2PriorTracksMap.end())
-      {
-        std::stringstream msg;
-        msg << "Prior lmb density contains the same label twice...";
-        throw std::runtime_error(msg.str());
-      }
-      priorLabelsStr << track_prior._label << " ";
-      prior_labels.push_back(track_prior._label);
-      label2PriorTracksMap[track_prior._label].push_back(track_prior);
-    }
-    LOG_DEB("Prior Labels: " << priorLabelsStr.str());
-
-    bool emptySensorUpdate = false;
-    bool emptyTrackUpdate = false;
-    std::vector<Label> emptyTrackLabels;
-    std::vector<Label> addedLabels;
-    for (const auto& posterior_lmb : updated_lmbs)
-    {
-      LOG_DEB("next sensor!");
-
-      // one sensor has an empty distribution -> fusion would throw away all tracks
-      if (posterior_lmb._tracks.empty())
-      {
-        emptySensorUpdate = true;
-        break;
-      }
-      bool foundAtrack = false;
-      for (auto& label_prior : prior_labels)
-      {
-        auto trackIt = std::find_if(posterior_lmb._tracks.begin(),
-                                    posterior_lmb._tracks.end(),
-                                    [&label_prior](const State& obj) { return obj._label == label_prior; });
-        if (trackIt != posterior_lmb._tracks.end())
-        {
-          // add posterior track to track list of label
-          LOG_DEB("Add label " << label_prior << " to map ");
-          addedLabels.push_back(label_prior);
-          label2UpdatedTracksMap[label_prior].push_back(std::move(*trackIt));
-          foundAtrack = true;
-        }
-        else
-        {
-          // track doesn't exist anymore in this distribution -> fusion will throw away this track
-          auto itLabel = std::find(emptyTrackLabels.begin(), emptyTrackLabels.end(), label_prior);
-          if (itLabel == emptyTrackLabels.end())
-          {
-            // this is the first distribution, where this track is vanished -> add label to list
-            LOG_INF("Remove track with label " << label_prior << " since it vanished in one ore more posterior dists!");
-            emptyTrackLabels.push_back(label_prior);
-          }
-          emptyTrackUpdate = true;
-        }
-      }
-      if (!foundAtrack)
-      {
-        // This case should never happen!!
-        LOG_ERR(" No Track found for fusion of this sensor");
-        emptySensorUpdate = true;
-        std::stringstream msg;
-        msg << "LMB dist of sensor has labels which are not in lmb prior dist";
-        throw std::runtime_error(msg.str());
-      }
-    }
-
-    // remove tracks, which can not exist anymore after fusion
-    if (emptyTrackUpdate)
-    {
-      assert(emptyTrackLabels.size() > 0 && "no labels to delete!");
-      if (emptyTrackLabels.empty())
-      {
-        throw std::runtime_error("No Labels to delete. Something is weird!");
-      }
-      // delete track from label2localTracksMap
-      for (auto& emptyLabel : emptyTrackLabels)
-      {
-        if (std::find(addedLabels.begin(), addedLabels.end(), emptyLabel) != addedLabels.end())
-        {
-          label2UpdatedTracksMap.erase(emptyLabel);
-        }
-      }
-    }
-
-    if (emptySensorUpdate || label2UpdatedTracksMap.empty())
-    {
-      if (!isDynamicBirth)  // in dynamic birth his behaviour is ok!
-      {
-        LOG_WARN("Received at least one empty distribution or each track is vanished in at least one posterior "
-                 "distribution => no fusion is performed");
-        if (emptySensorUpdate)
-        {
-          LOG_WARN("Empty sensor update (is ok in first cycle of fpm-lmb and if you use a dynamic birth)");
-        }
-      }
-      // return empty LMB distribution
-      _tracks.clear();
-      return;
+      prior_2_posteriors[_manager->get_state(posterior)._prior_id].push_back(posterior);
     }
   }
-
-  fuse_distributions_fpm(std::move(label2PriorTracksMap), std::move(label2UpdatedTracksMap));
-  LOG_DEB("Fused dist after fpm fusion: " << fusedLMB.toString());
-  assert(isValid() && "Fused dist after fpm fusion is not valid!");
-}
-
-void LMBDistribution::fuse_distributions_fpm(std::map<Label, std::vector<State>>&& label2PriorTracksMap,
-                                             std::map<Label, std::vector<State>>&& label2UpdatedTracksMap)
-{
-  ZoneScopedN("LMB_FPM_Tracker::fuseLMBDistributions");
-  _tracks.clear();
-  std::mutex fused_lmbs_mutex;
-  if (_manager->params().thread_pool_size > 0 && _manager->params().filter.lmb_fpm.calculate_fpm_fusion_tracks_parallel)
+  std::vector<StateId> updated_tracks;
+  for (auto& [prior, posteriors] : prior_2_posteriors)
   {
-    auto kv = std::views::keys(label2UpdatedTracksMap);
-    std::vector<Label> labels{ kv.begin(), kv.end() };
-
-    _manager->thread_pool().detach_loop(std::size_t{ 0 }, labels.size(), [&](std::size_t i) {
-      LOG_DEB("Fusion of tracks with label " << labels.at(i));
-      if (label2PriorTracksMap[labels.at(i)].size() > 1 || label2PriorTracksMap[labels.at(i)].empty())
-      {
-        throw std::runtime_error("more than one possible prior tracks or no existing prior track for this label!");
-      }
-      State prior_track = std::move(*label2PriorTracksMap[labels.at(i)].begin());
-      Time fused_time = label2UpdatedTracksMap[labels.at(i)].begin()->_time;
-      State fused_track = fuse_tracks_fpm(std::move(prior_track),
-                                          label2UpdatedTracksMap[labels.at(i)].begin(),
-                                          label2UpdatedTracksMap[labels.at(i)].end());
-      fused_track._time = fused_time;
-      if (fused_track._existenceProbability != 0.0)
-      {
-        std::unique_lock lock(fused_lmbs_mutex);
-        addTrack(std::move(fused_track));
-      }
-      else
-      {
-        LOG_DEB("Track with label " << labels.at(i) << " vanished since no fusion result is available!");
-      }
-    });
-    _manager->thread_pool().wait();
-  }
-  else
-  {
-    for (const auto& [label, trackList] : label2UpdatedTracksMap)
+    if (posteriors.size() != posterior_lmbs.size())
     {
-      // fusion
-      LOG_DEB("Fusion of tracks with label " << label);
-      if (label2PriorTracksMap[label].size() > 1 || label2PriorTracksMap[label].empty())
-      {
-        throw std::runtime_error("more than one possible prior tracks or no existing prior track for this label!");
-      }
-      State prior_track = std::move(*label2PriorTracksMap[label].begin());
-      Time fused_time = trackList.begin()->_time;
-      State fused_track = fuse_tracks_fpm(std::move(prior_track), trackList.begin(), trackList.end());
-      fused_track._time = fused_time;
-      if (fused_track._existenceProbability > 0.0)
-      {
-        addTrack(std::move(fused_track));
-      }
-      else
-      {
-        LOG_DEB("Track with label " << label << " vanished since no fusion result is available!");
-      }
-    }
-  }
-}
-
-template <typename TrackIt>
-State LMBDistribution::fuse_tracks_fpm(State&& priorTrack, TrackIt localTracksBegin, TrackIt localTracksEnd) const
-{
-  ZoneScopedN("LMB_FPM_Tracker::fuseTracks_fpm");
-  LOG_DEB("Fuse Tracks with label " << priorTrack._label);
-  if (localTracksBegin == localTracksEnd)
-  {
-    // no fusion is needed since no posterior distribution is given
-    LOG_ERR("Should not end up here!");
-    throw std::runtime_error("No posterior updates are given! How can you end up here?!? Should be catched before");
-  }
-  // calculate existence probability products
-  double r_fused = 0.;  // is calculated later
-  double r_prior = priorTrack._existenceProbability;
-  LOG_DEB("r_prior: " << r_prior);
-  double r_posterior_product = 1.;
-  double r_inverse_posterior_product = 1.;
-  calculate_product_r_factors(localTracksBegin, localTracksEnd, r_posterior_product, r_inverse_posterior_product);
-
-  // Fusion
-  const Label priorLabel = priorTrack._label;
-  State fusedDist = _manager->createState();
-  std::size_t numSensors = 0;
-  double weightSumMMF = 0.0;  // check calculation in case of MMF!
-  bool fusedResultIsEmpty = true;
-  auto const& stateModels = _manager->getStateModelMap();
-
-  //  LOG_INF("Prior Track: " << priorTrack.toString());
-  //  for (TrackIt track = localTracksBegin; track != localTracksEnd; ++track)
-  //  {
-  //    LOG_INF("posterior Track: " << track->toString());
-  //  }
-
-  for (auto const& [model_id, mixture] : priorTrack._state_dist)
-  {
-    BaseStateModel const& stateModel = *stateModels.at(model_id);
-
-    const std::vector<BaseDistribution*>& priorMixtureComponents = mixture->dists();
-    if (priorMixtureComponents.empty())
-    {
-      LOG_INF("Skipping empty mixture in track fusion");
       continue;
     }
-
-    if (_manager->params().filter.lmb_fpm.calculate_true_k_best)
+    auto const prior_it = std::ranges::find(_tracks, prior);
+    assert(prior_it != _tracks.end());
+    std::vector<State<UDT>> copies;
+    for (StateId id : posteriors)
     {
-      // calculate the totally k best solutions using the generalizedKBest algorithm
-      LOG_INF("GeneralizedKBest");
-      FPMFusionInfos fusionInfos =
-          create_graph_fpm(localTracksBegin, localTracksEnd, priorMixtureComponents, model_id, numSensors);
-
-      //    size_t counter_priorComps = fusionInfos._usedPriorComps.size();
-
-      if (fusionInfos._startNode == fusionInfos._endNode)
-      {
-        LOG_WARN("No Fusion result for model_id " << model_id
-                                                  << " since no prior mixture component is given by all sensors!");
-        continue;
-      }
-      // GeneralizedKBestSelection algorithm
-      LOG_INF("start with generalizedKBestSelection algorithm, pmNumBestComponents_k: "
-              << _manager->params().filter.lmb_fpm.pmNumBestComponents_k);
-      std::vector<std::pair<std::vector<Edge_FPM>, double>> solutions = fusionInfos._graph.k_shortest_paths(
-          fusionInfos._startNode, fusionInfos._endNode, _manager->params().filter.lmb_fpm.pmNumBestComponents_k);
-
-      // calculate fused result of each selection
-      if (solutions.empty())
-      {
-        // There is no fused result for this label, but there should be one!
-        LOG_ERR("Something is weird with the generalizedKbestSelectionAlgorithm!");  // This should never happen
-        throw std::runtime_error("Something is weird with the generalizedKBestAlgorithm!");
-        continue;
-      }
-      // calculate for every prior component fused gm components
-      std::vector<std::unique_ptr<BaseDistribution>> fusedComponents =
-          fuse_mixture_components_generalized_k_best_fpm(fusionInfos, solutions, numSensors, weightSumMMF, stateModel);
-      fusedDist._state_dist.at(stateModel.id())->merge(std::move(fusedComponents));
-      fusedResultIsEmpty = false;
+      copies.push_back(_manager->get_state(id));
     }
-    else
+    if (std::optional<std::pair<State<UDT>, UDT>> fused =
+            fuse_tracks_fpm(_manager->get_state(*prior_it), std::move(copies));
+        fused.has_value())
     {
-      LOG_INF("KBest");
-      // calculate k depending on the prior mixture component weight and only use the kBestSelection algorithm for
-      // each prior component separately calculate the actual k best solutions using the generalizedKBestalgorithm
-      std::vector<FPMFusionInfos> fusionInfosVec =
-          create_graphs_fpm(localTracksBegin, localTracksEnd, priorMixtureComponents, model_id, numSensors);
+      StateId const id = fused.value().first._id;
+      _manager->database().states.insert(std::move(fused.value().first));
+      _manager->database().state_existences.emplace(id, fused.value().second);
+      updated_tracks.push_back(id);
+    }
+  }
+  _tracks = std::move(updated_tracks);
+  assert(is_valid() && "Fused dist after fpm fusion is not valid!");
+}
 
-      if (fusionInfosVec.empty())
+template <class UDT>
+std::optional<std::pair<State<UDT>, UDT>>
+LMBDistribution<UDT>::fuse_tracks_fpm(State<UDT> priorTrack, std::vector<State<UDT>> posteriors) const
+{
+  ZoneScopedN("LMBDistribution::fuse_tracks_fpm");
+  LOG_DEB("Fuse Tracks with label " << priorTrack._label);
+  assert([&] {
+    if (not priorTrack.isValid())
+    {
+      LOG_FATAL("pior track s is invalid");
+      return false;
+    }
+    for (State<UDT> const& post : posteriors)
+    {
+      if (not post.isValid())
       {
-        LOG_WARN("No Fusion result for model_id " << model_id
-                                                  << " since no prior mixture component is given by all sensors!");
-        continue;
+        LOG_FATAL("post is invalid:");
+        return false;
+      }
+    }
+    return true;
+  }());
+  UDT const r_prior = _manager->get_state_existence_probability(priorTrack._id);
+  auto const [r_posterior_product, r_inverse_posterior_product] = [&] {
+    UDT r_prod = 1;
+    UDT r_inv_prod = 1;
+    for (State<UDT> const& state : posteriors)
+    {
+      r_prod *= _manager->get_state_existence_probability(state._id);
+      r_inv_prod *= (1 - _manager->get_state_existence_probability(state._id));
+    }
+    return std::pair{ r_prod, r_inv_prod };
+  }();
+
+  // Fusion
+  std::optional<State<UDT>> fusedDist = fuse_posteriors(
+      priorTrack,
+      posteriors,
+      _manager->params()->lmb_distribution.multi_sensor.fpm.num_components,
+      _manager->params()->lmb_distribution.multi_sensor.fpm.method,
+      _manager->params()->lmb_distribution.multi_sensor.fpm.poisson_method.equal_allocation_share_ratio);
+  if (not fusedDist.has_value())
+  {
+    LOG_WARN("Fused mixture is empty due to pruning in posteriors -> Track is removed. It does not matter if it has a "
+             "high existence probability. Result could be worse because of this...");
+    // This case happens when not all posteriors have a value for one prior component! (Fused mixture is empty due to
+    // pruning in local updates) This happens in very complex scenarios like bearing only! Todo: Make sure there is at
+    // least one common component! (Must be probably fixed in innovation part...) this fused component does not exist
+    // which is worse....
+    return std::nullopt;
+  }
+  assert(fusedDist.value()._misc.contains("dist_weight_sum"));
+  UDT const fused_existence = [&] {
+    UDT exp = 1.0 - posteriors.size();
+    UDT r_prior_product = std::pow(r_prior, exp);
+    UDT r_prior_inverse_product = std::pow(1.0 - r_prior, exp);
+    UDT r_fused_num =
+        std::any_cast<UDT>(fusedDist.value()._misc.at("dist_weight_sum")) * r_prior_product * r_posterior_product;
+    UDT r_fused_den = r_prior_inverse_product * r_inverse_posterior_product + r_fused_num;
+    assert(std::isfinite(r_fused_num / r_fused_den));
+    return r_fused_num / r_fused_den;
+  }();
+  assert([&] {
+    if (not fusedDist.value().isValid())
+    {
+      LOG_FATAL("fused track is not valid");
+      LOG_FATAL(fusedDist.value().toString());
+      LOG_FATAL("prior");
+      LOG_FATAL(priorTrack.toString());
+      LOG_FATAL("posteriors");
+      for (State<UDT> const& post : posteriors)
+      {
+        LOG_FATAL(post.toString());
+      }
+      return false;
+    }
+    return true;
+  }());
+  return std::pair{ fusedDist.value(), fused_existence };
+}
+
+template <class UDT>
+void LMBDistribution<UDT>::pu_fusion(std::vector<LMBDistribution<UDT>> posterior_lmbs)
+{
+  ZoneScopedN("LMBDistribution::fpm_fusion");
+  LOG_DEB("FPM fusion with " << posterior_lmbs.size() << " single-sensor updated lmb densities.");
+  if (posterior_lmbs.size() == 1)
+  {
+    LOG_DEB("single sensor case");
+    *this = std::move(posterior_lmbs.at(0));
+    return;
+  }
+
+  // this state created the following posteriors
+  std::map<StateId, std::vector<StateId>> prior_2_posteriors;
+  for (LMBDistribution& posterior_lmb : posterior_lmbs)
+  {
+    for (StateId posterior : posterior_lmb._tracks)
+    {
+      prior_2_posteriors[_manager->get_state(posterior)._prior_id].push_back(posterior);
+    }
+  }
+  std::vector<StateId> updated_tracks;
+  for (auto& [prior, posteriors] : prior_2_posteriors)
+  {
+    if (posteriors.size() != posterior_lmbs.size())
+    {
+      continue;
+    }
+    auto const prior_it = std::ranges::find(_tracks, prior);
+    assert(prior_it != _tracks.end());
+    std::vector<State<UDT>> copies;
+    for (StateId id : posteriors)
+    {
+      copies.push_back(_manager->get_state(id));
+    }
+    if (std::optional<std::pair<State<UDT>, UDT>> fused =
+            fuse_tracks_pu(_manager->get_state(*prior_it), std::move(copies));
+        fused.has_value())
+    {
+      StateId const id = fused.value().first._id;
+      _manager->database().states.insert(std::move(fused.value().first));
+      _manager->database().state_existences.emplace(id, fused.value().second);
+      updated_tracks.push_back(id);
+    }
+  }
+  _tracks = std::move(updated_tracks);
+  assert(is_valid() && "Fused dist after fpm fusion is not valid!");
+}
+
+template <class UDT>
+std::optional<std::pair<State<UDT>, UDT>> LMBDistribution<UDT>::fuse_tracks_pu(State<UDT> priorTrack,
+                                                                               std::vector<State<UDT>> posteriors) const
+{
+  ZoneScopedN("LMBDistribution::fuse_tracks_fpm");
+  LOG_DEB("Fuse Tracks with label " << priorTrack._label);
+  assert([&] {
+    if (not priorTrack.isValid())
+    {
+      LOG_FATAL("pior track s is invalid");
+      return false;
+    }
+    for (State<UDT> const& post : posteriors)
+    {
+      if (not post.isValid())
+      {
+        LOG_FATAL("post is invalid:");
+        return false;
+      }
+    }
+    return true;
+  }());
+  UDT const r_prior = _manager->get_state_existence_probability(priorTrack._id);
+  auto const [r_posterior_product, r_inverse_posterior_product] = [&] {
+    UDT r_prod = 1;
+    UDT r_inv_prod = 1;
+    for (State<UDT> const& state : posteriors)
+    {
+      r_prod *= _manager->get_state_existence_probability(state._id);
+      r_inv_prod *= (1 - _manager->get_state_existence_probability(state._id));
+    }
+    return std::pair{ r_prod, r_inv_prod };
+  }();
+
+  // approximation of posteriors to one gaussian component in order to calculate division of states
+  // Fusion
+  std::optional<State<UDT>> fusedDist =
+      fuse_posteriors_pu(priorTrack,
+                         posteriors,
+                         _manager->params()->lmb_distribution.multi_sensor.pu.use_best_component,
+                         _manager->params()->lmb_distribution.multi_sensor.pu.num_components);
+  if (not fusedDist.has_value())
+  {
+    LOG_WARN("Fused mixture is empty -> Track is removed. It does not matter if it has a "
+             "high existence probability. Result could be worse because of this... Case should not happen! Check!!!!");
+    return std::nullopt;
+  }
+  assert(fusedDist.value()._misc.contains("eta"));
+  UDT const fused_existence = [&] {
+    UDT exp = 1.0 - posteriors.size();
+    UDT r_prior_product = std::pow(r_prior, exp);
+    UDT r_prior_inverse_product = std::pow(1.0 - r_prior, exp);
+    UDT r_fused_num = std::any_cast<UDT>(fusedDist.value()._misc.at("eta")) * r_prior_product * r_posterior_product;
+    UDT r_fused_den = r_prior_inverse_product * r_inverse_posterior_product + r_fused_num;
+    assert(std::isfinite(r_fused_num / r_fused_den));
+    return r_fused_num / r_fused_den;
+  }();
+  assert([&] {
+    if (not fusedDist.value().isValid())
+    {
+      LOG_FATAL("fused track is not valid");
+      LOG_FATAL(fusedDist.value().toString());
+      LOG_FATAL("prior");
+      LOG_FATAL(priorTrack.toString());
+      LOG_FATAL("posteriors");
+      for (State<UDT> const& post : posteriors)
+      {
+        LOG_FATAL(post.toString());
+      }
+      return false;
+    }
+    return true;
+  }());
+  return std::pair{ fusedDist.value(), fused_existence };
+}
+
+template <class UDT>
+void LMBDistribution<UDT>::add_tracks(std::vector<BernoulliState<UDT>> tracks)
+{
+  for (BernoulliState<UDT>& birth_track : tracks)
+  {
+    assert([&] {  // NOLINT
+      if (auto const it = std::ranges::find_if(
+              _tracks,
+              [&](StateId existingid) { return _manager->get_state(existingid)._label == birth_track.state._label; });
+          it != _tracks.end())
+      {
+        LOG_FATAL("Track already exists in current distribution!");
+        return false;
       }
 
-      // K BestSelection algorithm
-      LOG_INF("start with kBestSelection algorithm, pmNumBestComponents_k: "
-              << _manager->params().filter.lmb_fpm.pmNumBestComponents_k);
-      std::vector<std::pair<FPMFusionPart, std::vector<std::pair<std::vector<Edge_FPM>, double>>>> solutionsVec;
-      for (auto const& fusionInfos : fusionInfosVec)
+      if (not birth_track.state.isValid())
       {
-        if (fusionInfos._k == 0)
+        LOG_FATAL("requested to add invalid track to LMB");
+        LOG_FATAL(birth_track.state.toString());
+        LOG_FATAL(std::stacktrace::current());
+        return false;
+      }
+      return true;
+    }());
+    StateId const id = birth_track.state._id;
+    _manager->database().states.insert(std::move(birth_track.state));
+    _manager->database().state_existences.emplace(id, birth_track.existence_probability);
+    _tracks.push_back(id);
+  }
+}
+
+template <class UDT>
+void LMBDistribution<UDT>::add_tracks(std::vector<StateId> const& tracks)
+{
+  for (StateId id : tracks)
+  {
+    _tracks.push_back(id);
+  }
+}
+
+template <class UDT>
+void LMBDistribution<UDT>::merge(LMBDistribution<UDT> otherDist)
+{
+  LOG_DEB("LMBDistribution::merge");
+  ZoneScopedN("LMBDistribution::merge");
+  add_tracks(otherDist._tracks);
+  for (auto& [source_id, meas_probs] : _meas_assignment_prob)
+  {
+    assert([&] {
+      if (not otherDist._meas_assignment_prob.contains(source_id))
+      {
+        LOG_FATAL("the other lmb distribution does not contain the meas assignment matrix for source "
+                  << source_id.value_);
+        LOG_FATAL("it contains:");
+        for (auto const& [source, _] : otherDist._meas_assignment_prob)
         {
-          continue;
+          LOG_FATAL("Source : " << source);
         }
-        std::vector<std::pair<std::vector<Edge_FPM>, double>> solutions =
-            fusionInfos._graph.k_shortest_paths(fusionInfos._startNode, fusionInfos._endNode, fusionInfos._k);
-
-        if (solutions.empty())
+        LOG_FATAL(otherDist.to_string());
+        LOG_FATAL("this lmb contains: ");
+        for (auto const& [source, matrix] : _meas_assignment_prob)
         {
-          // There is no fused result for this label!
-          LOG_ERR(
-              "Something is weird with the kBestSelectionAlgorithm! There should be at least one solution!");  // This
-                                                                                                               // should
-                                                                                                               // never
-                                                                                                               // happen
-          throw std::runtime_error("Something is weird with the kBestSelectionAlgorithm! There should be at least "
-                                   "one solution!");
+          LOG_FATAL("Source : " << source);
         }
-        solutionsVec.emplace_back(std::move(fusionInfos._partInfos), std::move(solutions));
+        return false;
       }
-
-      // calculate for every prior component fused gm components
-      std::vector<std::unique_ptr<BaseDistribution>> fusedComponents =
-          fuse_mixture_components_k_best_fpm(solutionsVec, numSensors, weightSumMMF, stateModel);
-      fusedDist._state_dist.at(stateModel.id())->merge(std::move(fusedComponents));
-      fusedResultIsEmpty = false;
-    }
+      return true;
+    }());
+    meas_probs.merge(std::move(otherDist._meas_assignment_prob.at(source_id)));
   }
-
-  // calculate fused r, for the formula derivation check the FPM-LMB Paper!
-  // (https://ieeexplore.ieee.org/document/10224189) ToDo(hermann): In case of multi model filter (multiple state
-  // models) the calculation of the fused existence probability is wrong! (weightSumMMF!!!)
-  if (fusedResultIsEmpty)  // This check is not necessary, since in case of an empty fusion result, weightSumMMF
-                           // should be empty and then r_fused = 0. It is here for safety reasons
-  {
-    LOG_WARN("Fused result is empty!");
-    if (weightSumMMF > 0)
-    {
-      throw std::runtime_error("Weight sum of gm components should be empty in case of an empty fusion result!");
-    }
-    r_fused = 0.0;
-    LOG_WARN("r_fused = " << r_fused);
-    fusedDist._existenceProbability = r_fused;  // todo(hermann): is this necessary?
-    return fusedDist;
-  }
-
-  // calculate fused existence probability
-  r_fused = calculate_fused_existence_probability(
-      r_prior, r_posterior_product, r_inverse_posterior_product, weightSumMMF, numSensors);
-  LOG_DEB("r_fused = " << r_fused);
-  fusedDist._existenceProbability = r_fused;
-  fusedDist._label = priorLabel;
-  return fusedDist;
+  LOG_DEB("LMBDistribution::merge");
 }
 
-template <typename TrackIt>
-void LMBDistribution::calculate_product_r_factors(TrackIt localTracksBegin,
-                                                  TrackIt localTracksEnd,
-                                                  double& r_posterior_product,
-                                                  double& r_inverse_posterior_product) const
-{
-  for (TrackIt localTrack = localTracksBegin; localTrack != localTracksEnd; ++localTrack)
-  {
-    double r_posterior = localTrack->_existenceProbability;
-    LOG_DEB("r_posterior: " << r_posterior);
-    if (r_posterior >= 1.0)
-    {
-      r_posterior = std::min(1.0 - TTB_EPS, r_posterior);
-    }
-    r_posterior_product *= r_posterior;
-    r_inverse_posterior_product *= (1 - r_posterior);
-  }
-}
-
-template <typename TrackIt>
-LMBDistribution::FPMFusionInfos
-LMBDistribution::create_graph_fpm(TrackIt localTracksBegin,
-                                  TrackIt localTracksEnd,
-                                  const std::vector<BaseDistribution*>& priorMixtureComponents,
-                                  const StateModelId model_id,
-                                  std::size_t& numSensors) const
-{
-  ZoneScopedN("LMB_FPM_Tracker::createGraph");
-  if constexpr (std::is_base_of_v<std::random_access_iterator_tag,
-                                  typename std::iterator_traits<TrackIt>::iterator_category>)
-  {
-    numSensors = localTracksEnd - localTracksBegin;
-  }
-  std::map<DistributionId, BaseDistribution*> usedPriorComps;
-  std::vector<std::map<DistributionId, const BaseDistribution*>> edgeId2localComp(numSensors);
-  std::vector<std::size_t> nodes;
-  std::vector<graph::Edge<Edge_FPM, std::size_t, double>> edges;
-  std::size_t priorCompsNumber = priorMixtureComponents.size();
-  LOG_INF("number of prior components: " << priorCompsNumber << " numSensors: " << numSensors);
-
-  std::size_t priorCompCounter = 1;
-  std::size_t highestPossibleVal = priorCompsNumber * (numSensors + 1) + 1;
-  std::size_t startNode = 0;
-  nodes.push_back(startNode);
-  std::size_t endNode = highestPossibleVal;
-  for (const auto& prior_component : priorMixtureComponents)
-  {
-    DistributionId prior_id = prior_component->id();
-
-    bool isempty = false;
-    std::size_t sensorCounter = 1;
-    std::vector<std::size_t> nodes_tmp;
-    std::vector<graph::Edge<Edge_FPM, std::size_t, double>> edges_comp;
-    std::size_t sensorId = 0;
-    for (TrackIt track = localTracksBegin; track != localTracksEnd; ++track, sensorId++)
-    {
-      const std::map<StateModelId, std::unique_ptr<BaseDistribution>>& locDist = track->_state_dist;
-      std::vector<graph::Edge<Edge_FPM, std::size_t, double>> edges_sensor;
-
-      size_t node1 = (priorCompCounter - 1) * (numSensors + 1) + sensorCounter;
-      sensorCounter++;
-      size_t node2 = (priorCompCounter - 1) * (numSensors + 1) + sensorCounter;
-      if (node2 == priorCompCounter * (numSensors + 1))
-      {
-        // last node of this prior component id
-        node2 = endNode;
-      }
-      for (const auto& [loc_model_id, locMixture] : locDist)
-      {
-        if (loc_model_id != model_id)
-        {
-          // gaussian components must have the same state model id!
-          continue;
-        }
-        const auto& localMixtureComponents = locMixture->dists();
-        for (const auto& loc_comp : localMixtureComponents)
-        {
-          if ((loc_comp->priorId() == prior_id) ||
-              ((loc_comp->priorId() == NO_DISTRIBUTION_ID_HISTORY) &&
-               (loc_comp->id() == prior_id)))  // prior_id==loc_comp->priorId() || missdetected component(corresponds
-                                               // to priorId=0) with id==prior_id
-          {
-            //           LOG_INF("found fitting component! " << loc_comp->toString());
-            LOG_INF("Create new edge with (dist_id, sensorId)=("
-                    << loc_comp->id() << ", " << sensorId << "), startNode: " << node1 << " end node: " << node2);
-            edges_sensor.emplace_back(std::make_pair(sensorId, loc_comp->id()), node1, node2, loc_comp->sumWeights());
-            edgeId2localComp[sensorId].emplace(loc_comp->id(), loc_comp);
-          }
-        }
-      }
-
-      if (edges_sensor.empty())
-      {
-        // one sensor has no MixtureComponents!
-        LOG_INF("Sensor does not deliver results for component id " << prior_id);
-        isempty = true;
-        break;
-      }
-      nodes_tmp.push_back(node1);
-      nodes_tmp.push_back(node2);
-      edges_comp.insert(
-          edges_comp.end(), std::make_move_iterator(edges_sensor.begin()), std::make_move_iterator(edges_sensor.end()));
-    }
-    if (!isempty)
-    {
-      LOG_INF("insert nodes and edges for this prior id: " << prior_id);
-      nodes.insert(nodes.end(), std::make_move_iterator(nodes_tmp.begin()), std::make_move_iterator(nodes_tmp.end()));
-      edges.insert(edges.end(), std::make_move_iterator(edges_comp.begin()), std::make_move_iterator(edges_comp.end()));
-      double factor = 1 / std::pow(prior_component->sumWeights(), numSensors - 1);
-      // Add Dummy Edge containing weight of 1/(V-1)*priorCompWeight
-      std::size_t first_node_id = (priorCompCounter - 1) * (numSensors + 1) + 1;
-      edges.emplace_back(std::make_pair(numSensors, prior_id), startNode, first_node_id, factor);
-      LOG_INF("Create new dummy edge (dist_id, sensorId)=("
-              << prior_id << ", " << numSensors << ") startNode: " << startNode << " end node: " << first_node_id);
-      usedPriorComps.emplace(prior_id, prior_component);
-    }
-    priorCompCounter++;
-  }
-  // remove duplicated nodes
-  sort(nodes.begin(), nodes.end());
-  nodes.erase(unique(nodes.begin(), nodes.end()), nodes.end());
-
-  LOG_INF("startNode: " << startNode << ", endNode: " << endNode);
-  if (edges.empty())
-  {
-    // Empty graph! all prior components are not present in all posterior tracks!
-    endNode = startNode;
-  }
-  graph::DiGraph<std::size_t, Edge_FPM, double> graph = graph::DiGraph(std::move(nodes), std::move(edges));
-
-  FPMFusionPart partInfos;
-  partInfos._usedPriorComps = std::move(usedPriorComps);
-  partInfos._edgeId2localComp = std::move(edgeId2localComp);
-  return { ._graph = std::move(graph),
-           ._partInfos = std::move(partInfos),
-           ._startNode = startNode,
-           ._endNode = endNode,
-           ._k = _manager->params().filter.lmb_fpm.pmNumBestComponents_k };
-}
-
-std::size_t LMBDistribution::scaled_by_prior_weight(const double weight) const
-{
-  return static_cast<std::size_t>(weight *
-                                  static_cast<double>(_manager->params().filter.lmb_fpm.pmNumBestComponents_k));
-}
-
-std::size_t LMBDistribution::scaled_by_prior_weight_poisson(std::map<DistributionId, Index>& componentID2Alloc,
-                                                            DistributionId prior_id) const
-{
-  ZoneScopedN("LMB_FPM_Tracker::scaledByPriorWeightPoisson");
-  Vector scaling_weights{ { 1 } };
-  if (!componentID2Alloc.empty())
-  {
-    Indices slots = propAllocation(componentID2Alloc.at(prior_id),
-                                   scaling_weights,
-                                   _manager->params().filter.lmb_fpm.equal_allocation_share_ratio);
-    return slots(0);
-  }
-  return 0;
-}
-
-std::size_t LMBDistribution::get_k(const double weight,
-                                   std::map<DistributionId, Index>& componentID2Alloc,
-                                   DistributionId prior_id) const
-{
-  if (_manager->params().filter.lmb_fpm.calculate_poisson_k_best)
-  {
-    return scaled_by_prior_weight_poisson(componentID2Alloc, prior_id);
-  }
-  else
-  {
-    return scaled_by_prior_weight(weight);
-  }
-}
-
-template <typename TrackIt>
-std::vector<LMBDistribution::FPMFusionInfos>
-LMBDistribution::create_graphs_fpm(TrackIt localTracksBegin,
-                                   TrackIt localTracksEnd,
-                                   const std::vector<BaseDistribution*>& priorMixtureComponents,
-                                   const StateModelId model_id,
-                                   std::size_t& numSensors) const
-{
-  ZoneScopedN("LMB_FPM_Tracker::createGraphs");
-  std::vector<LMBDistribution::FPMFusionInfos> graphs;
-  if constexpr (std::is_base_of_v<std::random_access_iterator_tag,
-                                  typename std::iterator_traits<TrackIt>::iterator_category>)
-  {
-    numSensors = localTracksEnd - localTracksBegin;
-  }
-
-  std::map<DistributionId, Index> componentID2Alloc;
-  std::vector<DistributionId> component_ids;
-
-  if (_manager->params().filter.lmb_fpm.calculate_poisson_k_best)
-  {
-    std::size_t num_prior_comps = priorMixtureComponents.size();
-    Eigen::ArrayXf weights(num_prior_comps);
-    component_ids.resize(num_prior_comps);
-    std::size_t counter = 0;
-    for (const auto& prior_component : priorMixtureComponents)
-    {
-      component_ids.at(counter) = prior_component->id();
-      weights(counter) = prior_component->sumWeights();
-      counter++;
-    }
-
-    if (num_prior_comps != 1)
-    {
-      Eigen::ArrayXf linspace = Eigen::ArrayXf::LinSpaced(num_prior_comps, 0, num_prior_comps - 1);
-      Eigen::ArrayXf prod = weights * linspace;
-      double lambda = prod.sum();
-      Vector poiss_probs = Vector::Zero(num_prior_comps);
-      poiss_probs(0) = std::exp(-lambda);
-      for (std::size_t n = 1; n <= num_prior_comps - 1; ++n)
-      {
-        poiss_probs(n) = lambda / (n)*poiss_probs(n - 1);
-      }
-      Indices alloc = propAllocation(_manager->params().filter.lmb_fpm.pmNumBestComponents_k,
-                                     poiss_probs,
-                                     _manager->params().filter.lmb_fpm.equal_allocation_share_ratio);
-      const auto alloc_slots = alloc.sum();
-      assert(alloc_slots <= _manager->params().filter.lmb_fpm.pmNumBestComponents_k && "too much slots are allocated");
-      if (static_cast<double>(alloc_slots) < _manager->params().filter.lmb_fpm.pmNumBestComponents_k * 0.85)
-      {
-        LOG_WARN("Number of allocated slots is very small (" << alloc_slots << " / "
-                                                             << _manager->params().filter.lmb_fpm.pmNumBestComponents_k
-                                                             << " are allocated).");
-      }
-      std::size_t counter2 = 0;
-      for (auto const& val : alloc)
-      {
-        componentID2Alloc.emplace(component_ids.at(counter2), val);
-        counter2++;
-      }
-    }
-    else
-    {
-      componentID2Alloc.emplace(component_ids.at(0), _manager->params().filter.lmb_fpm.pmNumBestComponents_k);
-    }
-  }
-  for (const auto& prior_component : priorMixtureComponents)
-  {
-    DistributionId prior_id = prior_component->id();
-    bool isempty = false;
-
-    std::map<DistributionId, BaseDistribution*> usedPriorComps;
-    std::vector<std::map<DistributionId, const BaseDistribution*>> edgeId2localComp(numSensors);
-    std::vector<std::size_t> nodes;
-    std::vector<graph::Edge<Edge_FPM, std::size_t, double>> edges;
-
-    std::size_t startNode = 0;
-    std::size_t endNode = 0;
-    nodes.push_back(startNode);
-
-    std::size_t node_ctr = 0;
-
-    std::vector<std::size_t> nodes_tmp;
-    std::vector<graph::Edge<Edge_FPM, std::size_t, double>> edges_comp;
-    std::size_t sensorId = 0;
-    for (TrackIt track = localTracksBegin; track != localTracksEnd; ++track)
-    {
-      const std::map<StateModelId, std::unique_ptr<BaseDistribution>>& locDist = track->_state_dist;
-      std::vector<graph::Edge<Edge_FPM, std::size_t, double>> edges_sensor;
-
-      std::size_t node1 = node_ctr;
-      node_ctr++;
-      std::size_t node2 = node_ctr;
-
-      for (const auto& [loc_model_id, locMixture] : locDist)
-      {
-        if (loc_model_id != model_id)
-        {
-          // gaussian components must have the same state model id!
-          continue;
-        }
-        const auto& localMixtureComponents = locMixture->dists();
-        LOG_INF("Mixture size: " << localMixtureComponents.size());
-        for (const auto& loc_comp : localMixtureComponents)
-        {
-          if ((loc_comp->priorId() == prior_id) ||
-              ((loc_comp->priorId() == NO_DISTRIBUTION_ID_HISTORY) &&
-               (loc_comp->id() == prior_id)))  // prior_id==loc_comp->priorId()
-                                               //  || misdetected component (corresponds
-                                               //  to priorId=0) with id==prior_id
-          {
-            LOG_INF("Create new edge with distId " << loc_comp->id() << ", sensorId " << sensorId
-                                                   << " startNode: " << node1 << " end node: " << node2);
-            edges_sensor.emplace_back(std::make_pair(sensorId, loc_comp->id()), node1, node2, loc_comp->sumWeights());
-            edgeId2localComp[sensorId].emplace(loc_comp->id(), loc_comp);
-          }
-        }
-      }
-      sensorId++;
-      if (edges_sensor.empty())
-      {
-        // one sensor has no MixtureComponents with this prior component id!
-        LOG_INF("Sensor does not deliver results for component id " << prior_id);
-        isempty = true;
-        break;
-      }
-      LOG_INF("Add Node with id: " << node1);
-      LOG_INF("add Node with id: " << node2);
-      nodes_tmp.push_back(node1);
-      nodes_tmp.push_back(node2);
-      endNode = node2;
-      edges_comp.insert(
-          edges_comp.end(), std::make_move_iterator(edges_sensor.begin()), std::make_move_iterator(edges_sensor.end()));
-    }
-    if (!isempty)
-    {
-      LOG_INF("insert nodes and edges for this prior id: " << prior_id);
-      nodes.insert(nodes.end(), std::make_move_iterator(nodes_tmp.begin()), std::make_move_iterator(nodes_tmp.end()));
-      edges.insert(edges.end(), std::make_move_iterator(edges_comp.begin()), std::make_move_iterator(edges_comp.end()));
-      usedPriorComps.emplace(prior_id, prior_component);
-
-      // remove duplicated nodes
-      sort(nodes.begin(), nodes.end());
-      nodes.erase(unique(nodes.begin(), nodes.end()), nodes.end());
-
-      LOG_DEB("extern startNode: " << startNode << " extern endNode: " << endNode);
-      graph::DiGraph<std::size_t, Edge_FPM, double> graph = graph::DiGraph(std::move(nodes), std::move(edges));
-      // calculate k dependent on which mode
-      std::size_t k = get_k(prior_component->sumWeights(), componentID2Alloc, prior_id);
-      LOG_INF("Calculate the k best solutions with k = " << k);
-      LOG_INF("start node: " << startNode << " endNode: " << endNode);
-      FPMFusionPart partInfos;
-      partInfos._usedPriorComps = std::move(usedPriorComps);
-      partInfos._edgeId2localComp = std::move(edgeId2localComp);
-      graphs.emplace_back(std::move(graph), std::move(partInfos), startNode, endNode, k);
-    }
-  }
-  return graphs;
-}
-
-std::vector<std::unique_ptr<BaseDistribution>> LMBDistribution::fuse_mixture_components_generalized_k_best_fpm(
-    const FPMFusionInfos& fusionInfos,
-    std::vector<std::pair<std::vector<Edge_FPM>, double>>& solutions,
-    const std::size_t numSensors,
-    double& weightSumMMF,
-    const BaseStateModel& stateModel) const
-{
-  std::vector<std::unique_ptr<BaseDistribution>> fusedComponents;
-
-  double weightSum = 0;
-  for (const auto& [solution, fusedWeightGraph] : solutions)
-  {
-    LOG_INF("new solution with weight " << fusedWeightGraph);
-    DistributionId priorId;
-    Matrix priorInfoMat;
-    Vector priorInfoVec;
-    double priorWeight = 0.0;
-    Matrix infoMatSum;
-    Vector infoVecSum;
-    double weightProduct = 1.0;
-    bool hasPriorComponent = false;
-    for (const auto& edgeId : solution)
-    {
-      LOG_INF("edgeId: (" << edgeId.second << ", " << edgeId.first << ")");
-      if (fusionInfos._partInfos._usedPriorComps.contains(edgeId.second) && edgeId.first == numSensors)
-      {
-        auto* const prior_component = fusionInfos._partInfos._usedPriorComps.at(edgeId.second);
-        const auto* priorDist = impl::smartPtrCast<GaussianDistribution>(prior_component,
-                                                                         "prior dist has "
-                                                                         "unsupported Gaussian "
-                                                                         "distribution type "
-                                                                         "(fuseTracks_fpm)");
-        priorInfoMat = priorDist->getInfoMat();
-        priorInfoVec = priorDist->getInfoVec();
-        if (stateModel.state_comps().indexOf(COMPONENT::ROT_Z).has_value())
-        {
-          angles::normalizeAngle(priorInfoVec(stateModel.state_comps().indexOf(COMPONENT::ROT_Z).value()));
-        }
-        priorWeight = priorDist->sumWeights();
-        priorId = edgeId.second;
-        hasPriorComponent = true;
-        LOG_INF("is prior component!");
-        continue;
-      }
-      // local component
-      const auto* localDist = impl::smartPtrCast<GaussianDistribution>(
-          fusionInfos._partInfos._edgeId2localComp[edgeId.first].at(edgeId.second),
-          "local dist has unsupported Gaussian distribution type "
-          "(fuseTracks_fpm)");
-      const Matrix infoMat = localDist->getInfoMat();
-      Vector infoVec = localDist->getInfoVec();
-      if (stateModel.state_comps().indexOf(COMPONENT::ROT_Z).has_value())
-      {
-        angles::normalizeAngle(infoVec(stateModel.state_comps().indexOf(COMPONENT::ROT_Z).value()));
-      }
-      if (infoMatSum.size() == 0)
-      {
-        infoMatSum = infoMat;
-      }
-      else
-      {
-        infoMatSum = infoMatSum + infoMat;
-      }
-
-      if (infoVecSum.size() == 0)
-      {
-        infoVecSum = infoVec;
-      }
-      else
-      {
-        infoVecSum = infoVecSum + infoVec;
-      }
-      weightProduct = weightProduct * localDist->sumWeights();
-    }
-    if (!hasPriorComponent)
-    {
-      LOG_FATAL("Has no prior component in solution of generalizedKBest algorithm!!!! -> BUG");
-      throw std::runtime_error("Has no prior component in solution of generalizedKBest algorithm!!!! -> BUG");
-    }
-    double normConst = 1.0;
-    Matrix diff = infoMatSum - static_cast<double>(numSensors - 1) * priorInfoMat;
-    //        LOG_ERR("Check Semidefiniteness! FPM_fusion before .i(): " << checkSemidefiniteness(diff));
-    Matrix fusedCov = diff.inverse();
-    //        if(!checkSemidefiniteness(fusedCov))
-    //        {
-    //          LOG_ERR("not semidefinit!");
-    //          // Debug print selections of this gm id
-    //          for(const auto& comp:selection)
-    //          {
-    //            LOG_WARN("comp id: " << comp->id << " weight: " << comp->weight);
-    //            comp->distribution->print();
-    //          }
-    //          throw std::runtime_error("Not semidefinit!");
-    //        }
-    Vector fusedMean = fusedCov * (infoVecSum - static_cast<double>(numSensors - 1) * priorInfoVec);
-    if (stateModel.state_comps().indexOf(COMPONENT::ROT_Z).has_value())
-    {
-      angles::normalizeAngle(fusedMean(stateModel.state_comps().indexOf(COMPONENT::ROT_Z).value()));
-    }
-    // Fused Weights can be calculated using the BPCR formula. See derivation of "The Fast Product Multi-Sensor Labeled
-    // Multi-Bernoulli Filter"
-    double fusedWeight =
-        normConst * weightProduct /
-        (std::pow(priorWeight, static_cast<double>(numSensors - 1)));  // ToDo(hermann): Check if logarithm
-                                                                       // implementation for weights is necessary
-    if (fabs(fusedWeight - fusedWeightGraph) > 1e-6)
-    {
-      LOG_ERR("in fpm-lmb calculated fused weight is "
-              << fusedWeight << " in generalizedKBest algorithm calculated fusedWeight is " << fusedWeightGraph);
-      //        throw std::runtime_error("Different fused weight results!");
-    }
-    weightSum += fusedWeight;
-    auto fused_dist = std::make_unique<GaussianDistribution>(
-        std::move(fusedMean), std::move(fusedCov));  // todo(hermann): add version for use with reference points!
-    fused_dist->multiplyWeights(fusedWeight);
-    fusedComponents.push_back(std::move(fused_dist));
-  }
-  // normalize component weights
-  LOG_DEB("Normalize weights with weightSum: " << weightSum);
-  if (weightSum > 0)
-  {
-    for (auto& comp : fusedComponents)
-    {
-      comp->multiplyWeights(1 / weightSum);
-      LOG_DEB("comp id: " << comp->id() << " comp weight: " << comp->sumWeights());
-    }
-  }
-  weightSumMMF = weightSum;
-  return fusedComponents;
-}
-
-std::vector<std::unique_ptr<BaseDistribution>> LMBDistribution::fuse_mixture_components_k_best_fpm(
-    const std::vector<std::pair<FPMFusionPart, std::vector<std::pair<std::vector<Edge_FPM>, double>>>>& solutionsVec,
-    const std::size_t numSensors,
-    double& weightSumMMF,
-    const BaseStateModel& stateModel) const
-{
-  std::vector<std::unique_ptr<BaseDistribution>> fusedComponents;
-  LOG_INF("fuse_mixture_components_k_best_fpm: ");
-  double weightSum = 0;
-  for (const auto& solutions : solutionsVec)
-  {
-    if (solutions.first._usedPriorComps.size() > 1 || solutions.first._usedPriorComps.empty())
-    {
-      throw std::runtime_error("more than one prior component or no prior component given! Can not perform fusion!");
-    }
-    auto* const prior_component = solutions.first._usedPriorComps.begin()->second;
-    const auto* priorDist = impl::smartPtrCast<GaussianDistribution>(prior_component,
-                                                                     "prior dist has unsupported "
-                                                                     "Gaussian distribution type "
-                                                                     "(fuse_tracks_fpm)");
-    Matrix priorInfoMat = priorDist->getInfoMat();
-    Vector priorInfoVec = priorDist->getInfoVec();
-    if (stateModel.state_comps().indexOf(COMPONENT::ROT_Z).has_value())
-    {
-      angles::normalizeAngle(priorInfoVec(stateModel.state_comps().indexOf(COMPONENT::ROT_Z).value()));
-    }
-    double priorWeight = priorDist->sumWeights();
-    for (const auto& solution : solutions.second)
-    {
-      Matrix infoMatSum;
-      Vector infoVecSum;
-      double weightProduct = 1.0;
-      LOG_INF("next solution with weight: " << solution.second);
-      for (const auto& edgeId : solution.first)
-      {
-        LOG_INF("edge with distId " << edgeId.second << " and sensorId: " << edgeId.first);
-        // local component
-        const auto* localDist =
-            impl::smartPtrCast<GaussianDistribution>(solutions.first._edgeId2localComp[edgeId.first].at(edgeId.second),
-                                                     "local dist has unsupported Gaussian distribution type "
-                                                     "(fuse_tracks_fpm)");
-        const Matrix infoMat = localDist->getInfoMat();
-        Vector infoVec = localDist->getInfoVec();
-        if (stateModel.state_comps().indexOf(COMPONENT::ROT_Z).has_value())
-        {
-          angles::normalizeAngle(infoVec(stateModel.state_comps().indexOf(COMPONENT::ROT_Z).value()));
-        }
-
-        if (infoMatSum.size() == 0)
-        {
-          infoMatSum = infoMat;
-        }
-        else
-        {
-          infoMatSum = infoMatSum + infoMat;
-        }
-
-        if (infoVecSum.size() == 0)
-        {
-          infoVecSum = infoVec;
-        }
-        else
-        {
-          infoVecSum = infoVecSum + infoVec;
-        }
-        weightProduct = weightProduct * localDist->sumWeights();
-      }
-
-      double normConst = 1.0;
-      Matrix diff = infoMatSum - static_cast<double>(numSensors - 1) * priorInfoMat;
-      //        LOG_ERR("Check Semidefiniteness! FPM_fusion before .i(): " << checkSemidefiniteness(diff));
-      Matrix fusedCov = diff.inverse();
-      //        if(!checkSemidefiniteness(fusedCov))
-      //        {
-      //          LOG_ERR("not semidefinit!");
-      //          // Debug print selections of this gm id
-      //          for(const auto& comp:selection)
-      //          {
-      //            LOG_WARN("comp id: " << comp->id << " weight: " << comp->weight);
-      //            comp->distribution->print();
-      //          }
-      //          throw std::runtime_error("Not semidefinit!");
-      //        }
-      Vector fusedMean = fusedCov * (infoVecSum - static_cast<double>(numSensors - 1) * priorInfoVec);
-      if (stateModel.state_comps().indexOf(COMPONENT::ROT_Z).has_value())
-      {
-        angles::normalizeAngle(fusedMean(stateModel.state_comps().indexOf(COMPONENT::ROT_Z).value()));
-      }
-      // Fused Weights can be calculated using the BPCR formula. See derivation of "The Fast Product Multi-Sensor
-      // Labeled Multi-Bernoulli Filter"
-      double fusedWeight = normConst * weightProduct / (std::pow(priorWeight, static_cast<double>(numSensors - 1)));
-      weightSum += fusedWeight;
-      auto fused_dist = std::make_unique<GaussianDistribution>(std::move(fusedMean), std::move(fusedCov));
-      fused_dist->multiplyWeights(fusedWeight);
-      fusedComponents.push_back(std::move(fused_dist));
-    }
-  }
-  // normalize component weights
-  LOG_DEB("Normalize weights with weightSum: " << weightSum);
-  if (weightSum > 0)
-  {
-    for (auto& comp : fusedComponents)
-    {
-      comp->multiplyWeights(1 / weightSum);
-      LOG_DEB("comp id: " << comp->id() << " comp weight: " << comp->sumWeights());
-    }
-  }
-  weightSumMMF = weightSum;
-  return fusedComponents;
-}
-
-double LMBDistribution::calculate_fused_existence_probability(const double r_prior,
-                                                              const double r_posterior_product,
-                                                              const double r_inverse_posterior_product,
-                                                              const double weightSumMMF,
-                                                              const std::size_t numSensors) const
-{
-  double exp = 1.0 - numSensors;
-  double r_prior_product = std::pow(r_prior, exp);
-  double r_prior_inverse_product = std::pow(1.0 - r_prior, exp);
-  double r_fused_num = weightSumMMF * r_prior_product * r_posterior_product;
-  double r_fused_den = r_prior_inverse_product * r_inverse_posterior_product + r_fused_num;
-  return r_fused_num / r_fused_den;
-}
-
-void LMBDistribution::calcInnovation(MeasurementContainer const& Z)
-{
-  ZoneScopedNC("LMBDistribution::innovation", tracy_color);
-  LOG_DEB("Innovation LMB Distribution with " + std::to_string(_tracks.size()) + " Tracks and " +
-          std::to_string(Z._data.size()) + " Measurements");
-  utils::innovate(_manager, _tracks, Z);
-  LOG_DEB("After calcInnovation:\n" + toString());
-}
-
-void LMBDistribution::addTrack(State track)
-{
-  if (auto const it = std::ranges::find_if(
-          _tracks, [&](State const& existingTrack) { return existingTrack._label == track._label; });
-      it != _tracks.end())
-  {
-    LOG_FATAL("Track already exists in current distribution! Overwriting track!");
-    throw std::runtime_error("Track already exists in current distribution! RUN");
-  }
-  track._survival_probability = std::numeric_limits<double>::quiet_NaN();
-  _tracks.push_back(std::move(track));
-}
-
-bool LMBDistribution::eraseTrack(Label label)
-{
-  bool labelFound = false;
-  if (const auto it = std::ranges::find_if(_tracks, [&](State const& track) { return track._label == label; });
-      it != _tracks.end())
-  {
-    labelFound = true;
-    _tracks.erase(it);
-  }
-  return labelFound;
-}
-
-void LMBDistribution::merge(LMBDistribution otherDist)
-{
-  ZoneScopedNC("LMBDistribution::merge", tracy_color);
-  std::ranges::for_each(otherDist._tracks, [&](State& track) { addTrack(std::move(track)); });
-  _meas_assignment_prob.merge(std::move(otherDist._meas_assignment_prob));
-  _detection_dist = sa::merge_detection_dist(_detection_dist, otherDist._detection_dist);
-  _clutter_dist = sa::merge_clutter_dist(_clutter_dist, otherDist._clutter_dist);
-}
-
-std::string LMBDistribution::toString(std::string const& prefix) const
+template <class UDT>
+std::string LMBDistribution<UDT>::to_string(std::string const& prefix) const
 {
   std::string out = prefix + "LMB Distribution\n";
   out += prefix + "|\tId: " + std::to_string(_id.value_) + "\n";
-  for (auto const& track : _tracks)
+  for (StateId id : _tracks)
   {
-    out += track.toString(prefix + "|\t");
+    out += _manager->get_state(id).toString(prefix + "|\t");
   }
   return out;
 }
 
-bool LMBDistribution::isValid() const
+template <class UDT>
+void LMBDistribution<UDT>::disable_state_distribution_post_processing()
 {
-  return std::ranges::all_of(_tracks, [&](State const& track) {
+  Params next_params = *_manager->params();
+  for (auto const& [model_id, _] : _manager->getStateModelMap())
+  {
+    next_params.state_model_params(model_id).distribution.post_process.enable = false;
+  }
+  _manager->update_params(std::move(next_params));
+}
+
+template <class UDT>
+void LMBDistribution<UDT>::reset_state_distribution_post_processing()
+{
+  Params next_params = *_manager->params();
+  for (auto const& [model_id, _] : _manager->getStateModelMap())
+  {
+    next_params.state_model_params(model_id).distribution.post_process.enable =
+        _manager->original_params().state_model_params(model_id).distribution.post_process.enable;
+  }
+  _manager->update_params(std::move(next_params));
+}
+
+template <class UDT>
+void LMBDistribution<UDT>::innovate(std::span<DataSourceContainer<UDT> const> data_source_containers)
+{
+  for (DataSourceContainer<UDT> const& data_source_container : data_source_containers)
+  {
+    utils::innovate_db(_manager, _tracks, data_source_container);
+  }
+}
+
+template <class UDT>
+void LMBDistribution<UDT>::clear_update_metadata()
+{
+  _meas_assignment_prob.clear();
+  for (StateId id : _tracks)
+  {
+    auto const it = _manager->database().states.find(id);
+    State state = *it;
+    state._meta_data._last_meas_log_likelihood.clear();
+    state._meta_data._meas_update_weight.clear();
+    _manager->database().states.replace(it, std::move(state));
+  }
+}
+
+template <class UDT>
+bool LMBDistribution<UDT>::is_valid() const
+{
+  return std::ranges::all_of(_tracks, [&](StateId id) {
+    State<UDT> const& track = _manager->get_state(id);
     if (not track.isValid())
     {
       LOG_FATAL("Track " + track.toString() + "not valid");
@@ -1603,49 +1021,86 @@ bool LMBDistribution::isValid() const
   });
 }
 
-void LMBDistribution::postProcessPrediction()
+template <class UDT>
+void LMBDistribution<UDT>::post_process_prediction()
 {
-  ZoneScopedNC("LMBDistribution::postProcessPrediction", tracy_color);
-  prune_if([](State const& state) { return state.isEmpty(); });
-  if (_manager->params().lmb_distribution.post_process_prediction.enable)
+  LOG_DEB("LMBDistribution::post_process_prediction");
+  ZoneScopedN("LMBDistribution::post_process_prediction");
+  prune_if([&](StateId id) {
+    State<UDT> const& track = _manager->get_state(id);
+    return track.isEmpty();
+  });
+  if (_manager->params()->lmb_distribution.post_process_prediction.enable)
   {
-    prune_if([&](State const& track) {
-      return track._existenceProbability <
-             _manager->params().lmb_distribution.post_process_prediction.pruning_threshold;
+    prune_if([&](StateId id) {
+      return _manager->get_state_existence_probability(id) <
+             _manager->params()->lmb_distribution.post_process_prediction.pruning_threshold;
     });
-    prune_if([&](State const& track) {
+    prune_if([&](StateId id) {
+      State<UDT> const& track = _manager->get_state(id);
       return track._meta_data._durationSinceLastAssociation >
              std::chrono::milliseconds(
-                 _manager->params().lmb_distribution.post_process_prediction.max_last_assoc_duration_ms);
+                 _manager->params()->lmb_distribution.post_process_prediction.max_last_assoc_duration_ms);
     });
-    truncate(_manager->params().lmb_distribution.post_process_prediction.max_tracks);
+    truncate(_manager->params()->lmb_distribution.post_process_prediction.max_tracks);
   }
   assert([&] {  // NOLINT
-    if (not isValid())
+    if (not is_valid())
     {
-      LOG_FATAL(toString());
+      LOG_FATAL(to_string());
       return false;
     }
     return true;
   }());
 }
 
-void LMBDistribution::postProcessUpdate()
+template <class UDT>
+template <class Policy>
+std::pair<UDT, std::size_t> LMBDistribution<UDT>::prune_if(Policy pred)
 {
-  LOG_DEB("post process update");
-  ZoneScopedNC("LMBDistribution::postProcessUpdate", tracy_color);
-  prune_if([](State const& state) { return state.isEmpty(); });
-  if (_manager->params().lmb_distribution.post_process_update.enable)
+  std::vector<StateId> keep;
+  std::size_t num_pruned = 0;
+  UDT weight_pruned = 0;
+  UDT weight_sum = 0;
+  for (StateId id : _tracks)
   {
-    prune_if([&](State const& track) {
-      return track._existenceProbability < _manager->params().lmb_distribution.post_process_update.pruning_threshold;
+    UDT const ex = _manager->get_state_existence_probability(id);
+    weight_sum += ex;
+    if (pred(id))
+    {
+      ++num_pruned;
+      weight_pruned += ex;
+    }
+    else
+    {
+      keep.push_back(id);
+    }
+  }
+  _tracks = std::move(keep);
+  return { weight_pruned / weight_sum, num_pruned };
+}
+
+template <class UDT>
+void LMBDistribution<UDT>::post_process_update()
+{
+  LOG_DEB("LMBDistribution::post_process_update");
+  ZoneScopedN("LMBDistribution::post_process_update");
+  prune_if([&](StateId const& id) {
+    State<UDT> const& track = _manager->get_state(id);
+    return track.isEmpty();
+  });
+  if (_manager->params()->lmb_distribution.post_process_update.enable)
+  {
+    prune_if([&](StateId id) {
+      return _manager->get_state_existence_probability(id) <
+             _manager->params()->lmb_distribution.post_process_update.pruning_threshold;
     });
-    truncate(_manager->params().lmb_distribution.post_process_update.max_tracks);
+    truncate(_manager->params()->lmb_distribution.post_process_update.max_tracks);
   }
   assert([&] {  // NOLINT
-    if (not isValid())
+    if (not is_valid())
     {
-      LOG_FATAL(toString());
+      LOG_FATAL(to_string());
       return false;
     }
     return true;
@@ -1653,19 +1108,315 @@ void LMBDistribution::postProcessUpdate()
   LOG_DEB("postProcessUpdate done");
 }
 
-Vector const& LMBDistribution::clutter_distribution() const
+template <class UDT>
+Vector<UDT> LMBDistribution<UDT>::clutter_distribution(DataSourceContainer<UDT> const& data_source_container) const
 {
-  return _clutter_dist;
+  std::vector<Matrix<UDT>> const detection_dists = detection_distribution(data_source_container);
+  Matrix<UDT> detection_dist{ { 1 } };
+  for (Matrix<UDT> const& D : detection_dists)
+  {
+    detection_dist = numeric::fold<UDT>(detection_dist, D);
+  }
+
+  Index const num_meas = data_source_container._measurements.size();
+  assert(std::abs(detection_dist.sum() - 1) < 1e-5);
+  Vector<UDT> clutter_dist = Vector<UDT>::Zero(num_meas + 1);
+  for (Index detected = 0; detected < detection_dist.rows(); ++detected)
+  {
+    for (Index missed = 0; missed < detection_dist.cols(); ++missed)
+    {
+      clutter_dist(std::max(Index{ 0 }, num_meas - detected)) += detection_dist(detected, missed);
+    }
+  }
+  clutter_dist /= clutter_dist.sum();
+  assert([&] {  // NOLINT
+    if (not std::ranges::all_of(clutter_dist.reshaped(), [](UDT val) { return std::isfinite(val); }))
+    {
+      LOG_FATAL("Invalid clutter dist: " << clutter_dist << " with sum: " << clutter_dist.sum()
+                                         << " detection dist sum: " << detection_dist.sum());
+      return false;
+    }
+    return true;
+  }());
+  return clutter_dist;
 }
 
-Matrix const& LMBDistribution::detection_distribution() const
+template <class UDT>
+std::vector<Matrix<UDT>>
+LMBDistribution<UDT>::detection_distribution(DataSourceContainer<UDT> const& data_source_container) const
 {
-  return _detection_dist;
+  std::vector<Matrix<UDT>> detection_dists;
+  for (StateId id : _tracks)
+  {
+    State<UDT> const& track = _manager->get_state(id);
+    assert([&] {
+      if (not track._meta_data._detectable.contains(data_source_container._source_id))
+      {
+        LOG_FATAL(track.toString());
+        return false;
+      }
+      return true;
+    }());
+    if (not track._meta_data._detectable.at(data_source_container._source_id) or
+        track._meta_data._numUpdates <= _manager->params()->meas_models.gaussian_models.size() + 1)
+    {
+      continue;
+    }
+    assert([&] {  // NOLINT
+      if (not track._meta_data._meas_update_weight.contains(data_source_container._source_id) or
+          not _manager->database().state_existences.contains(track._id))
+      {
+        LOG_FATAL("track not ok: " << track.toString());
+        return false;
+      }
+      return true;
+    }());
+    UDT const weight_mis_detection = [&] {
+      if (auto const it = std::ranges::find(track._meta_data._meas_update_weight.at(data_source_container._source_id),
+                                            NOT_DETECTED,
+                                            &std::pair<MeasurementId, UDT>::first);
+          it != track._meta_data._meas_update_weight.at(data_source_container._source_id).end())
+      {
+        return it->second;
+      }
+      return UDT{ 0.0 };
+    }();
+
+    UDT const track_ex_prob = _manager->get_state_existence_probability(track._id);
+
+    UDT const ed = track_ex_prob * (1 - weight_mis_detection);  ///< track exists + detected
+    UDT const em = track_ex_prob * weight_mis_detection;        ///< track exists + missed
+    UDT const n = 1 - track_ex_prob;                            ///< track does not exists
+    detection_dists.push_back(Matrix<UDT>{ { n, em }, { ed, 0 } });
+  }
+  return detection_dists;
 }
 
-std::map<MeasurementId, Probability> const& LMBDistribution::meas_assignment_prob() const
+template <class UDT>
+UDT LMBDistribution<UDT>::bayes_factor_statistics_measurement_likelihood(
+    DataSourceContainer<UDT> const& data_source_container) const
 {
-  return _meas_assignment_prob;
+  if (not data_source_container._sensorInfo._sensor_fov.has_value())
+  {
+    LOG_FATAL("Can not compute Self Assessment Statistics if no fov is defined");
+    LOG_FATAL(std::stacktrace::current());
+    std::terminate();
+  }
+  double const fov_area =
+      data_source_container._sensorInfo._sensor_fov.value().area(Components({ COMPONENT::POS_X, COMPONENT::POS_Y }));
+
+  double const clutter_rate = [&] {
+    if (_manager->params()->meas_model_params(data_source_container._source_id).clutter.rate.has_value())
+    {
+      return _manager->params()->meas_model_params(data_source_container._source_id).clutter.rate.value();
+    }
+    return fov_area * _manager->params()->meas_model_params(data_source_container._source_id).clutter.intensity.value();
+  }();
+
+  UDT meas_log_likelihood = -clutter_rate;
+  for (State<UDT> const& meas : data_source_container._measurements)
+  {
+    if (not _manager->database().meas_clutter_intensity.contains(meas._id))
+    {
+      // todo: refactor compute innovation: problem if no tracksare there, no clutter for measurment is computed
+      LOG_INF(std::format("The clutter intensity was never computed for meas {}", meas._id));
+      _manager->database().meas_clutter_intensity.insert(
+          { meas._id,
+            _manager->getMeasModel(data_source_container._source_id)
+                .calculate_clutter_intensity(meas, data_source_container._sensorInfo) });
+    }
+    meas_log_likelihood += std::log(_manager->database().meas_clutter_intensity.find(meas._id)->clutter_intensity);
+  }
+  std::map<StateId, UDT> betas;
+  for (StateId track : _tracks)
+  {
+    State<UDT> const& state = _manager->get_state(track);
+    UDT const r = _manager->get_state_existence_probability(track);
+    UDT const& r_ = _manager->get_state_existence_probability(state._prior_id);
+    assert(_manager->database().state_detection_probabilities.contains(
+        std::tuple{ state._prior_id, data_source_container._id }));
+    UDT const pd = _manager->database()
+                       .state_detection_probabilities.find(std::tuple{ state._prior_id, data_source_container._id })
+                       ->detection_probability;
+    meas_log_likelihood += (1 - r) * std::log(1 - r_) + r * std::log(r_);
+    meas_log_likelihood += -(1 - r) * log(1 - r);
+    assert(state._meta_data._meas_update_weight.contains(data_source_container._source_id));
+    for (auto const& [meas, weight] : state._meta_data._meas_update_weight.at(data_source_container._source_id))
+    {
+      UDT const alpha = r * weight;
+      if (meas == NOT_DETECTED)
+      {
+        meas_log_likelihood += alpha * std::log(1 - pd);
+        meas_log_likelihood += -alpha * log(alpha);
+      }
+      else
+      {
+        meas_log_likelihood += (1 - alpha) * log(1 - alpha);
+        meas_log_likelihood += -alpha * log(alpha);
+        betas[meas] += alpha;
+        assert(_manager->database().state_meas_log_likelihood.contains(std::tuple{ state._prior_id, meas }));
+        UDT const l = _manager->database()
+                          .state_meas_log_likelihood.find(std::tuple{ state._prior_id, meas })
+                          ->meas_log_likelihood;
+        meas_log_likelihood +=
+            alpha *
+            (std::log(pd) + l - std::log(_manager->database().meas_clutter_intensity.find(meas)->clutter_intensity));
+      }
+    }
+  }
+  for (const auto& weight : betas | std::views::values)
+  {
+    meas_log_likelihood += -(1 - weight) * log(1 - weight);
+  }
+  return meas_log_likelihood;
+}
+
+template <class UDT>
+std::map<std::pair<UDT, UDT>, UDT>
+LMBDistribution<UDT>::bayes_factor_statistics_measurement_likelihood_without_detection(
+    DataSourceContainer<UDT> const& data_source_container) const
+{
+  if (not data_source_container._sensorInfo._sensor_fov.has_value())
+  {
+    LOG_FATAL("Can not compute Self Assessment Statistics if no fov is defined");
+    LOG_FATAL(std::stacktrace::current());
+    std::terminate();
+  }
+  double const fov_area =
+      data_source_container._sensorInfo._sensor_fov.value().area(Components({ COMPONENT::POS_X, COMPONENT::POS_Y }));
+
+  double const clutter_rate = [&] {
+    if (_manager->params()->meas_model_params(data_source_container._source_id).clutter.rate.has_value())
+    {
+      return _manager->params()->meas_model_params(data_source_container._source_id).clutter.rate.value();
+    }
+    return fov_area * _manager->params()->meas_model_params(data_source_container._source_id).clutter.intensity.value();
+  }();
+
+  UDT meas_log_likelihood = -clutter_rate;
+  for (State<UDT> const& meas : data_source_container._measurements)
+  {
+    assert(_manager->database().meas_clutter_intensity.contains(meas._id));
+    meas_log_likelihood += std::log(_manager->database().meas_clutter_intensity.find(meas._id)->clutter_intensity);
+  }
+  UDT num_detected = 0;
+  UDT num_missed = 0;
+  std::map<StateId, UDT> betas;
+  for (StateId track : _tracks)
+  {
+    State<UDT> const& state = _manager->get_state(track);
+    UDT const r = _manager->get_state_existence_probability(track);
+    UDT const& r_ = _manager->get_state_existence_probability(state._prior_id);
+    assert(_manager->database().state_detection_probabilities.contains(
+        std::tuple{ state._prior_id, data_source_container._id }));
+    meas_log_likelihood += (1 - r) * std::log(1 - r_) + r * std::log(r_);
+    meas_log_likelihood += -(1 - r) * log(1 - r);
+    assert(state._meta_data._meas_update_weight.contains(data_source_container._source_id));
+    for (auto const& [meas, weight] : state._meta_data._meas_update_weight.at(data_source_container._source_id))
+    {
+      UDT const alpha = r * weight;
+      if (meas == NOT_DETECTED)
+      {
+        num_missed += alpha;
+        meas_log_likelihood += -alpha * log(alpha);
+      }
+      else
+      {
+        meas_log_likelihood += (1 - alpha) * log(1 - alpha);
+        meas_log_likelihood += -alpha * log(alpha);
+        betas[meas] += alpha;
+        num_detected += alpha;
+        assert(_manager->database().state_meas_log_likelihood.contains(std::tuple{ state._prior_id, meas }));
+        UDT const l = _manager->database()
+                          .state_meas_log_likelihood.find(std::tuple{ state._prior_id, meas })
+                          ->meas_log_likelihood;
+        meas_log_likelihood +=
+            alpha * (l - std::log(_manager->database().meas_clutter_intensity.find(meas)->clutter_intensity));
+      }
+    }
+  }
+  for (const auto& weight : betas | std::views::values)
+  {
+    meas_log_likelihood += -(1 - weight) * log(1 - weight);
+  }
+  return { { { num_detected, num_missed }, meas_log_likelihood } };
+}
+
+template <class UDT>
+std::map<UDT, UDT> LMBDistribution<UDT>::bayes_factor_statistics_measurement_likelihood_without_clutter(
+    DataSourceContainer<UDT> const& data_source_container) const
+{
+  if (not data_source_container._sensorInfo._sensor_fov.has_value())
+  {
+    LOG_FATAL("Can not compute Self Assessment Statistics if no fov is defined");
+    LOG_FATAL(std::stacktrace::current());
+    std::terminate();
+  }
+  UDT meas_log_likelihood = 0;
+  UDT num_detected = 0;
+  std::map<StateId, UDT> betas;
+  for (StateId track : _tracks)
+  {
+    State<UDT> const& state = _manager->get_state(track);
+    UDT const r = _manager->get_state_existence_probability(track);
+    UDT const& r_ = _manager->get_state_existence_probability(state._prior_id);
+    assert(_manager->database().state_detection_probabilities.contains(
+        std::tuple{ state._prior_id, data_source_container._id }));
+    UDT const pd = _manager->database()
+                       .state_detection_probabilities.find(std::tuple{ state._prior_id, data_source_container._id })
+                       ->detection_probability;
+    meas_log_likelihood += (1 - r) * std::log(1 - r_) + r * std::log(r_);
+    meas_log_likelihood += -(1 - r) * log(1 - r);
+    assert(state._meta_data._meas_update_weight.contains(data_source_container._source_id));
+    for (auto const& [meas, weight] : state._meta_data._meas_update_weight.at(data_source_container._source_id))
+    {
+      UDT const alpha = r * weight;
+      if (meas == NOT_DETECTED)
+      {
+        meas_log_likelihood += alpha * std::log(1 - pd);
+        meas_log_likelihood += -alpha * log(alpha);
+      }
+      else
+      {
+        num_detected += alpha;
+        betas[meas] += alpha;
+        meas_log_likelihood += (1 - alpha) * log(1 - alpha);
+        meas_log_likelihood += -alpha * log(alpha);
+        assert(_manager->database().state_meas_log_likelihood.contains(std::tuple{ state._prior_id, meas }));
+        UDT const l = _manager->database()
+                          .state_meas_log_likelihood.find(std::tuple{ state._prior_id, meas })
+                          ->meas_log_likelihood;
+        meas_log_likelihood += alpha * (std::log(pd) + l);
+      }
+    }
+  }
+  for (const auto& weight : betas | std::views::values)
+  {
+    meas_log_likelihood += -(1 - weight) * log(1 - weight);
+  }
+  return { { num_detected, meas_log_likelihood } };
+}
+
+template <class UDT>
+std::map<MeasurementId, UDT> const&
+LMBDistribution<UDT>::meas_assignment_prob(DataSourceContainer<UDT> const& data_source_container) const
+{
+  LOG_DEB("LMBDistribution::meas_assignment_prob");
+
+  assert([&] {  // NOLINT
+    if (not _meas_assignment_prob.contains(data_source_container._id))
+    {
+      LOG_FATAL(data_source_container.toString());
+      LOG_FATAL(std::stacktrace::current());
+      for (auto const& [id, data] : _meas_assignment_prob)
+      {
+        LOG_FATAL(id);
+      }
+      return false;
+    }
+    return true;
+  }());
+  return _meas_assignment_prob.at(data_source_container._id);
 }
 
 }  // namespace ttb

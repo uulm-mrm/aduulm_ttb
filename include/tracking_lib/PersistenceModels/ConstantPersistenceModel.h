@@ -1,27 +1,28 @@
 #pragma once
 
-#include "tracking_lib/PersistenceModels/BasePersistenceModel.h"
 #include "tracking_lib/TTBTypes/TTBTypes.h"
+#include "tracking_lib/Misc/Region.h"
 
 namespace ttb
 {
 
 /// Model the Persistence Probability of a Track
-class ConstantPersistenceModel : public BasePersistenceModel
+template <class UDT>
+class ConstantPersistenceModel
 {
 public:
-  explicit ConstantPersistenceModel(TTBManager* manager);
-
-  ~ConstantPersistenceModel() override = default;
+  explicit ConstantPersistenceModel(TTBManager<UDT>* manager);
 
   /// Gets the persistence probability of a track
-  [[nodiscard]] double getPersistenceProbability(State const& state, Duration dt) const override;
+  [[nodiscard]] double getPersistenceProbability(State<UDT> const& /**/,
+                                                 Duration dt,
+                                                 std::optional<Region> const& /**/) const;
 
-  [[nodiscard]] PERSISTENCE_MODEL_TYPE type() const override;
+  [[nodiscard]] static PERSISTENCE_MODEL_TYPE type();
 
-  [[nodiscard]] TTBManager* manager() const override;
+  [[nodiscard]] TTBManager<UDT>* manager() const;
 
-  TTBManager* _manager;
+  TTBManager<UDT>* _manager;
 };
 
 }  // namespace ttb

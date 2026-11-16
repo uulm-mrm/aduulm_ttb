@@ -1,0 +1,6 @@
+[submodule "third_party/hpx"]
+	path = third_party/hpx
+	url = https://github.com/TheHPXProject/hpx.git
+[submodule "third_party/xad"]
+	path = third_party/xad
+	url = https://github.com/auto-differentiation/xad.git

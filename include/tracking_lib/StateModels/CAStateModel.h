@@ -1,27 +1,26 @@
 #pragma once
 
-#include "tracking_lib/StateModels/LinearStateModel.h"
+#include "tracking_lib/Distributions/GaussianDistribution.h"
+#include "tracking_lib/States/EgoMotionDistribution.h"
+#include "tracking_lib/TTBTypes/TTBTypes.h"
 
 namespace ttb
 {
 
-Components const CA_state_comps = Components({ COMPONENT::POS_X,
-                                               COMPONENT::POS_Y,
-                                               COMPONENT::POS_Z,
-                                               COMPONENT::VEL_X,
-                                               COMPONENT::VEL_Y,
-                                               COMPONENT::ACC_X,
-                                               COMPONENT::ACC_Y });
-Components const CA_noise_comps = Components({ COMPONENT::JERK_X, COMPONENT::JERK_Y, COMPONENT::VEL_Z });
 
 /// Constant Acceleration State Model
-class CAStateModel : public LinearStateModel
+template<class UDT>
+class CAStateModel
 {
 public:
-  CAStateModel(TTBManager* manager, StateModelId id);
-  ~CAStateModel() override = default;
-  [[nodiscard]] STATE_MODEL_TYPE type() const noexcept override;
-  [[nodiscard]] ProcessMatrices processMatrix(Duration dt) const override;
+  [[nodiscard]] static STATE_MODEL_TYPE type();
+  [[nodiscard]] GaussianDistribution<UDT> predict(Duration dt,
+                                             GaussianDistribution<UDT> const& dist,
+                                             EgoMotionDistribution const& ego) const;
+
+  [[nodiscard]] ProcessMatrices<UDT> processMatrix(Duration dt) const ;
+  TTBManager<UDT> const& _manager;
+  StateModelId _id;
 };
 
 }  // namespace ttb

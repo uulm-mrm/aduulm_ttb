@@ -1,21 +1,37 @@
 #pragma once
+#include "tracking_lib/PersistenceModels/ConstantPersistenceModel.h"
+#include "tracking_lib/PersistenceModels/ROIPersistenceModel.h"
 
 #include "tracking_lib/TTBTypes/TTBTypes.h"
+#include "tracking_lib/Misc/Region.h"
 
 namespace ttb
 {
 
 /// Model the Persistence Probability of a Track
-class BasePersistenceModel
+template <class UDT>
+class PersistenceModel
 {
 public:
-  virtual ~BasePersistenceModel() = default;
+  using AllModels = std::variant<ConstantPersistenceModel<UDT>, ROIPersistenceModel<UDT>>;
   /// Gets the persistence probability of a track
-  [[nodiscard]] virtual double getPersistenceProbability(State const& state, Duration dt) const = 0;
+  [[nodiscard]] UDT getPersistenceProbability(State<UDT> const& state,
+                                              Duration dt,
+                                              std::optional<Region> const& roi) const
+  {
+    return std::visit([&](auto const& model) { return model.getPersistenceProbability(state, dt, roi); }, _model);
+  }
   /// the type of the persistence model
-  [[nodiscard]] virtual PERSISTENCE_MODEL_TYPE type() const = 0;
+  [[nodiscard]] PERSISTENCE_MODEL_TYPE type() const
+  {
+    return std::visit([&](auto const& model) { return model.type(); }, _model);
+  }
   /// access to the manager
-  [[nodiscard]] virtual TTBManager* manager() const = 0;
+  [[nodiscard]] TTBManager<UDT>* manager() const
+  {
+    return std::visit([&](auto const& model) { return model.manager(); }, _model);
+  }
+  AllModels _model;
 };
 
 }  // namespace ttb

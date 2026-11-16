@@ -1,36 +1,27 @@
-//
-// Created by hermann on 6/7/22.
-//
-
 #pragma once
 
-#include "tracking_lib/StateModels/LinearStateModel.h"
+#include "tracking_lib/Distributions/GaussianDistribution.h"
+#include "tracking_lib/States/EgoMotionDistribution.h"
+#include "tracking_lib/TTBTypes/TTBTypes.h"
 
 namespace ttb
 {
 
-Components const ISCATR_state_comps = Components({ COMPONENT::POS_X,
-                                                   COMPONENT::POS_Y,
-                                                   COMPONENT::POS_Z,
-                                                   COMPONENT::VEL_X,
-                                                   COMPONENT::VEL_Y,
-                                                   COMPONENT::ACC_X,
-                                                   COMPONENT::ACC_Y,
-                                                   COMPONENT::ROT_Z,
-                                                   COMPONENT::VEL_ROT_Z });
-Components const ISCATR_noise_comps =
-    Components({ COMPONENT::JERK_X, COMPONENT::JERK_Y, COMPONENT::VEL_Z, COMPONENT::ACC_ROT_Z });
-
 /// Independent split constant acceleration and turn rate state model.
 /// Application for crab-walk and objects moving with a constant side slip angle.
 /// This model was firstly developed by @hermann, because no other crab-walk model was known
-class ISCATRStateModel final : public LinearStateModel
+/// See T. Woopen et al., "Toward Intelligent Automated Driving Functionalities for Multipurpose Vehicles in
+/// UNICARagil," in Proceedings of the IEEE, vol. 114, no. 4, pp. 678-707, April 2026, doi: 10.1109/JPROC.2026.3714578.
+/// https://ieeexplore.ieee.org/document/11643228
+template <class UDT>
+class ISCATRStateModel
 {
 public:
-  ISCATRStateModel(TTBManager* manager, StateModelId id);
-  ~ISCATRStateModel() override = default;
-  [[nodiscard]] STATE_MODEL_TYPE type() const noexcept override;
-  [[nodiscard]] ProcessMatrices processMatrix(Duration dt) const override;
+  [[nodiscard]] static STATE_MODEL_TYPE type() noexcept;
+  [[nodiscard]] ProcessMatrices<UDT> processMatrix(Duration dt) const;
+  GaussianDistribution<UDT> predict(Duration dt, GaussianDistribution<UDT> const& dist, EgoMotionDistribution const& ego) const;
+  TTBManager<UDT> const& _manager;
+  StateModelId _id;
 };
 
 }  // namespace ttb

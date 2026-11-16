@@ -1,6 +1,20 @@
 thread_pool_size: 32
 show_gui: true
 version: 1.0.0
+ground_truth_metrics:
+  ospa:
+    evaluate: true
+    c: 10
+    p: 2
+  ospa2:
+    evaluate: true
+    c: 10
+    p: 2
+    sliding_window_length_ms: 1000
+  gospa:
+    evaluate: true
+    c: 10
+    p: 2
 
 
 ##### Measurement Models ###############################################################################################
@@ -91,7 +105,7 @@ state:
   estimation:
     type: BEST_STATE_MODEL
     transform_output_state: false
-    output_state_model: 4
+    output_state_model: 0
 
 
 
@@ -101,7 +115,7 @@ state_models:
     type: CV
     distribution:
       type: GAUSSIAN
-      mixture: true
+      mixture: false
       extraction_type: BEST_COMPONENT
       post_process:
         enable: true
@@ -149,28 +163,58 @@ birth_model:
     mean_num_birth: 2.
     birth_threshold: 0.1
     force_one_step_birth: true
+    use_default_values: true
+    default_values:
+      - var:
+          VEL_ABS: 2
+          VEL_X: 10
+          VEL_Y: 10
 
 persistence_model:
   type: CONSTANT
   constant:
     persistence_prob: 0.9
 
+self_assessment:
+  enable: false
+  track_assessment:
+    window_length_ms: 500
+  clutter_rate_estimation:
+    enable: true
+  detection_prob_estimation:
+    enable: true
+  persistence_prob_estimation:
+    enable: true
+    prior_mean: 0.95
+    prior_var: 0.04
+    window_length_ms: 900
+  bayes_factor:
+    num_updates: 1
+    detection:
+      enable: false
+      comparison:
+        - mean: 0.5
+          var: 0.03
+
 glmb_distribution:
   do_profiling: false
+  use_grouping: false
   post_process_prediction:
     enable: true
     pruning_threshold: 1e-5
     max_hypotheses: 300
   post_process_update:
     enable: true
-    pruning_threshold: 1e-5
-    max_hypotheses: 300
+    method: STANDARD
+    standard_pp:
+      pruning_threshold: 1e-5
+      max_hypotheses: 300
   update:
     joint_prediction_and_update: false
     assignment_method: GIBBS_SAMPLING
     max_total_number_update_hypotheses: 1000
     num_update_hypotheses:
-      equal_allocation_share_ratio: 1
+      equal_allocation_share_ratio: 0.1
       max_update_hypotheses: 5
     gibbs_sampling:
       max_trials_factor: 5
@@ -178,14 +222,10 @@ glmb_distribution:
   extraction:
     type: CARDINALITY #Best Hypothesis #Existence Probability  # Cardinality
     threshold: 0.3
+  add_tracks:
+    max_number_hypotheses: 50
 
-self_assessment:
-  clutter_rate_estimation:
-    static_discount: 0.999
-    dynamic_discount_alpha: 0.01
-  detection_prob_estimation:
-    static_discount: 0.999
-    dynamic_discount_alpha: 0.01
+
 
 
 filter:

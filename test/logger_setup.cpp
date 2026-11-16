@@ -1,6 +1,3 @@
-//
-// Created by alex on 11/2/23.
-//
 #include <tracking_lib/Misc/logger_setup.h>
 
 DEFINE_LOGGER_VARIABLES

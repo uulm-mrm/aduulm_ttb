@@ -16,6 +16,12 @@ from stonesoup.models.measurement.linear import LinearGaussian
 from datetime import datetime, timedelta
 
 # %%
+import sys
+import os
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+
+# %%
 """
 ==============================
 CREATING GROUND TRUTH SCENARIO
@@ -43,7 +49,7 @@ initial_state_covariance = CovarianceMatrix(np.diag([30, 1, 30, 1, 0]))
 timestep_size = timedelta(milliseconds=100)
 number_of_steps = 200
 birth_rate = 0.6
-death_probability = 0.05
+death_probability = 0.5
 start_time = datetime(2020, 12, 27, 0, 0, 0)
 initial_state = GaussianState(initial_state_mean, initial_state_covariance, start_time)
 

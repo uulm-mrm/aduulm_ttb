@@ -1,20 +1,16 @@
 #include "tracking_lib/TTBTypes/Components.h"
 #include <ranges>
-#include <set>
 
 namespace ttb
 {
 
 Components::Components(std::vector<COMPONENT> comps)
   : _comps{ [&] {
-    std::set<COMPONENT> set_comps;
-    for (COMPONENT comp : comps)
-    {
-      set_comps.insert(comp);
-    }
-    std::vector<COMPONENT> sorted_comps(set_comps.begin(), set_comps.end());
-    assert(std::ranges::is_sorted(sorted_comps));
-    return sorted_comps;
+    std::ranges::sort(comps);
+    auto [first, last] = std::ranges::unique(comps);
+    comps.erase(first, last);
+    assert(std::ranges::is_sorted(comps));
+    return comps;
   }() }
 {
 }
@@ -32,36 +28,21 @@ std::string Components::toString(std::string const& prefix) const
 
 std::optional<Index> Components::indexOf(COMPONENT comp) const
 {
-  if (auto const it = std::ranges::find(_comps, comp); it != _comps.end())
+  for (auto const [ind, c] : std::views::enumerate(_comps))
   {
-    return std::distance(_comps.begin(), it);
+    if (c == comp)
+    {
+      return ind;
+    }
   }
   return {};
-}
-
-std::optional<Indices> Components::indexOf(std::vector<COMPONENT> const& comps) const
-{
-  Indices indices(comps.size());
-  for (auto [ctr, sc] : std::views::enumerate(comps))
-  {
-    if (std::optional<Index> ind = indexOf(sc); ind.has_value())
-    {
-      indices(ctr) = ind.value();
-    }
-    else
-    {
-      return {};
-    }
-    ctr++;
-  }
-  return indices;
 }
 
 Components Components::intersection(Components const& otherComps) const
 {
   std::vector<COMPONENT> inter;
   std::ranges::set_intersection(_comps, otherComps._comps, std::back_inserter(inter));
-  return Components(inter);
+  return Components(std::move(inter));
 }
 
 bool Components::contains(Components const& other) const
@@ -73,7 +54,7 @@ Components Components::diff(Components const& other) const
 {
   std::vector<COMPONENT> diff;
   std::ranges::set_difference(_comps, other._comps, std::back_inserter(diff));
-  return Components(diff);
+  return Components(std::move(diff));
 }
 
 Components Components::merge(Components const& others) const
@@ -81,7 +62,118 @@ Components Components::merge(Components const& others) const
   std::vector<COMPONENT> all_comps;
   all_comps.insert(all_comps.end(), _comps.begin(), _comps.end());
   all_comps.insert(all_comps.end(), others._comps.begin(), others._comps.end());
-  return Components(all_comps);
+  return Components(std::move(all_comps));
+}
+
+std::string to_string(Components const& comps)
+{
+  return comps.toString();
+}
+
+std::pair<Components, Components> state_and_noise_comps(STATE_MODEL_TYPE model, EXTENT extent)
+{
+  Components base_comps = [&] {
+    if (model == STATE_MODEL_TYPE::CA)
+    {
+      return CA_state_comps;
+    }
+    if (model == STATE_MODEL_TYPE::CP)
+    {
+      return CP_state_comps;
+    }
+    if (model == STATE_MODEL_TYPE::CTP)
+    {
+      return CTP_state_comps;
+    }
+    if (model == STATE_MODEL_TYPE::CTRA)
+    {
+      return CTRA_state_comps;
+    }
+    if (model == STATE_MODEL_TYPE::CTRV)
+    {
+      return CTRV_state_comps;
+    }
+    if (model == STATE_MODEL_TYPE::CV)
+    {
+      return CV_state_comps;
+    }
+    if (model == STATE_MODEL_TYPE::ISCATR)
+    {
+      return ISCATR_state_comps;
+    }
+    LOG_FATAL("unknown state mode");
+    assert(false);
+    std::unreachable();
+  }();
+  Components base_noise = [&] {
+    if (model == STATE_MODEL_TYPE::CA)
+    {
+      return CA_noise_comps;
+    }
+    if (model == STATE_MODEL_TYPE::CP)
+    {
+      return CP_noise_comps;
+    }
+    if (model == STATE_MODEL_TYPE::CTP)
+    {
+      return CTP_noise_comps;
+    }
+    if (model == STATE_MODEL_TYPE::CTRA)
+    {
+      return CTRA_noise_comps;
+    }
+    if (model == STATE_MODEL_TYPE::CTRV)
+    {
+      return CTRV_noise_comps;
+    }
+    if (model == STATE_MODEL_TYPE::CV)
+    {
+      return CV_noise_comps;
+    }
+    if (model == STATE_MODEL_TYPE::ISCATR)
+    {
+      return ISCATR_noise_comps;
+    }
+    LOG_FATAL("unknown state mode");
+    assert(false);
+    std::unreachable();
+  }();
+  Components extent_comps = [&] -> Components {
+    if (extent == EXTENT::NONE)
+    {
+      return Components({});
+    }
+    if (extent == EXTENT::RECTANGULAR)
+    {
+      return EXTENT_RECTANGULAR;
+    }
+    if (extent == EXTENT::CIRCULAR)
+    {
+      return EXTENT_CIRCULAR;
+    }
+    LOG_FATAL("unknown extent");
+    assert(false);
+    std::unreachable();
+  }();
+
+  Components extent_noise = [&] -> Components {
+    if (extent == EXTENT::NONE)
+    {
+      return Components({});
+    }
+    if (extent == EXTENT::RECTANGULAR)
+    {
+      return EXTENT_RECTANGULAR_NOISE;
+    }
+    if (extent == EXTENT::CIRCULAR)
+    {
+      return EXTENT_CIRCULAR_NOISE;
+    }
+    LOG_FATAL("unknown extent");
+    assert(false);
+    std::unreachable();
+  }();
+  return { base_comps.merge(extent_comps), base_noise.merge(extent_noise) };
 }
 
 }  // namespace ttb

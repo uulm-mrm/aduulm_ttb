@@ -1,19 +1,15 @@
-FROM ubuntu:24.04
+FROM ubuntu:26.04
 
 ENV DEBIAN_FRONTEND="noninteractive" TERM="xterm"
 RUN echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
 
 # dependencies
 RUN apt update && apt install -q -y --no-install-recommends \
-      curl \
-      ca-certificates \
-      unzip \
       wget \
+      curl \
       build-essential \
       git git-lfs \
       sudo \
-      openssh-client \
-      apt-utils \
       locate \
       python3-sympy \
       libglfw3-dev \
@@ -26,9 +22,7 @@ RUN apt update && apt install -q -y --no-install-recommends \
 # Utilities
 RUN apt update && apt install -q -y --no-install-recommends \
       cmake \
-      zsh tmux less gdb xterm \
       lsb-release \
-      bash-completion \
       # Lanelet2 dependencies (Additional needs: libeigen3-dev & python-catkin-tools)
       libboost-dev \
       libboost-all-dev \
@@ -38,7 +32,6 @@ RUN apt update && apt install -q -y --no-install-recommends \
       libqt5svg5-dev qttools5-dev \
       libassimp-dev \
       # ros_template
-      rename \
       # other stuff
       libopenblas-dev \
       autotools-dev \
@@ -51,10 +44,8 @@ RUN apt update && apt install -q -y --no-install-recommends \
 
 # install comfort programms
 RUN apt update && apt install -q -y --no-install-recommends \
-      gitg \
       meld \
-      valgrind \
-      gitk git-gui nano vim vim-gtk3 mousepad xfce4-terminal \
+      vim \
       # fuse to make appimages work inside docker
       fuse \
       # libgsl for imu_processing
@@ -87,18 +78,14 @@ ENV PATH=/opt/ninja/bin:$PATH
 
 # python utilities
 RUN pip3 install --upgrade --no-cache-dir --break-system-packages \
-      numpy-quaternion colorama numba \
-      scikit-learn scikit-image pytest typing typing_extensions
+      scikit-learn scikit-image pytest
 
 # Remove cmake python package which provides a newer cmake version
 RUN pip3 uninstall -y --break-system-packages cmake
 
 # git_hooks: clang-17, some python dependencies
-# TODO: upgrade of pyyaml not possible since the debian installed version cannot be uninstalled...
 RUN apt update \
     && apt install -q -y --no-install-recommends clang-format-17 clang-tidy-17 clang-tools-17 clang-17 libclang-common-17-dev clangd-17 lld-17 llvm-17 libc++-17-dev libc++abi-17-dev libomp-17-dev \
-    && pip3 install --upgrade --no-cache-dir --break-system-packages six termcolor pydantic \
-    && pip3 install --no-cache-dir --break-system-packages pyyaml \
     && apt clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -166,9 +153,6 @@ RUN pip3 install --upgrade --no-cache-dir --break-system-packages  \
     # pillow with SIMD support
     pip3 uninstall -y --break-system-packages pillow && \
     CC="cc -mavx2" pip3 install --upgrade --no-cache-dir --force-reinstall --break-system-packages pillow-simd
-
-# # install qcustomplot for qt based simple plots
-# ADD dependencies/qcustomplot_install /tmp/qcustomplot_install
 
 # jsonschema networkx deepdiff: Required by orchestrator
 RUN pip3 install --upgrade --break-system-packages \
@@ -247,13 +231,14 @@ RUN cd /tmp && \
     cd /tmp/ && \
     rm -rf implot
 
+
 RUN apt -y update && apt -y install \
-    ros-jazzy-ament-cmake  \
-    ros-jazzy-ament-cmake-python  \
-    ros-jazzy-ament-cmake-core \
-    ros-jazzy-ament-cmake-libraries \
-    ros-jazzy-ament-package \
-    ros-jazzy-ament-cmake-gtest
+    ros-lyrical-ament-cmake  \
+    ros-lyrical-ament-cmake-python  \
+    ros-lyrical-ament-cmake-core \
+    ros-lyrical-ament-cmake-libraries \
+    ros-lyrical-ament-package \
+    ros-lyrical-ament-cmake-gtest
 
 RUN apt -y update && apt -y install libeigen3-dev
 
@@ -269,22 +254,51 @@ RUN mkdir /workspace && \
     git clone https://github.com/uulm-mrm/aduulm_logger.git && \
     cd aduulm_logger && \
     git submodule update --init --recursive && \
+    sed -i 's/VERSION 3\.3 FATAL_ERROR/VERSION 3.10 FATAL_ERROR/' library/CMakeLists.txt && \
     cd .. && \
     git clone https://github.com/uulm-mrm/minimal_latency_in_sequence_buffer.git && \
     cd minimal_latency_in_sequence_buffer && \
+    git submodule update --init --recursive && \
+    cd .. && \
+    git clone https://github.com/uulm-mrm/eslimpp.git && \
+    cd eslimpp && \
     git submodule update --init --recursive
 
 RUN apt -y update && apt -y install libdbus-1-dev libfreetype-dev libtbb-dev libglfw3-dev build-essential
 
 # tracy profiler
 RUN apt -y update && apt -y install libdbus-1-dev libfreetype-dev libtbb-dev
+RUN apt -y update && apt -y install --no-install-recommends \
+    libdbus-1-dev libfreetype-dev libtbb-dev \
+    libwayland-dev wayland-protocols libxkbcommon-dev \
+    libegl1-mesa-dev libgl1-mesa-dev pkg-config \
+    && apt clean && rm -rf /var/lib/apt/lists/*
+RUN apt -y update && apt -y install --no-install-recommends \
+ libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libx11-dev libxext-dev \
+    && apt clean && rm -rf /var/lib/apt/lists/*
 RUN cd /tmp && \
     git clone https://github.com/wolfpld/tracy.git --branch master && \
     cd tracy && \
     mkdir build && cd build && cmake -DCMAKE_BUILD_TYPE=Release -DTRACY_STATIC=OFF -DTRACY_ONLY_LOCALHOST=ON .. && cmake --build . -j && make install && \
     cd ../profiler && \
-    mkdir build && cd build && CC=/usr/bin/clang-17 CXX=/usr/bin/clang++-17 cmake -DCMAKE_BUILD_TYPE=Release -DLEGACY=ON .. && cmake --build . -j && \
+    mkdir build && cd build && cmake -DCMAKE_BUILD_TYPE=Release -DLEGACY=ON .. && cmake --build . -j && \
     mv tracy-profiler /usr/bin/ && \
     cd /tmp/ && \
     rm -rf tracy
-
+    
+RUN apt-get update && apt-get install -q -y --no-install-recommends \
+      libjemalloc-dev \
+      mold \
+      && apt-get clean \
+      && rm -rf /var/lib/apt/lists/*
+      
+# Gcc family compilers
+ARG GCC_VERSION=14
+RUN apt-get update && apt-get install -q -y --no-install-recommends \
+        gcc-$GCC_VERSION \
+        g++-$GCC_VERSION \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-$GCC_VERSION 10 \
+    && update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-$GCC_VERSION 10 \
+    && update-alternatives --install /usr/bin/gcov gcov /usr/bin/gcov-$GCC_VERSION 10

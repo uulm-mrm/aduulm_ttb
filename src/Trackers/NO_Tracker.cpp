@@ -1,64 +1,80 @@
 #include "tracking_lib/Trackers/NO_Tracker.h"
 // #####################################################################################################################
 #include "tracking_lib/TTBManager/TTBManager.h"
-#include "tracking_lib/Measurements/MeasurementContainer.h"
 #include "tracking_lib/MeasurementModels/BaseMeasurementModel.h"
 
 namespace ttb
 {
-NO_Tracker::NO_Tracker(TTBManager* manager) : _manager{ manager }
+
+template class NO_Tracker<double>;
+template class NO_Tracker<AD>;
+
+template <class UDT>
+NO_Tracker<UDT>::NO_Tracker(TTBManager<UDT>* manager) : _manager{ manager }
 {
 }
 
-FILTER_TYPE NO_Tracker::type() const
+template <class UDT>
+FILTER_TYPE NO_Tracker<UDT>::type() const
 {
   return FILTER_TYPE::NO;
 }
 
-TTBManager* NO_Tracker::manager() const
+template <class UDT>
+TTBManager<UDT>* NO_Tracker<UDT>::manager() const
 {
   return _manager;
 }
 
-Time NO_Tracker::time() const
+template <class UDT>
+Time NO_Tracker<UDT>::time() const
 {
   return _time;
 }
 
-void NO_Tracker::cycle(Time time, std::vector<MeasurementContainer>&& measContainerList)
+template <class UDT>
+void NO_Tracker<UDT>::cycle(std::vector<DataSourceContainer<UDT>> measContainerList)
 {
   LOG_DEB("cycle start");
   LOG_DEB("Received " << measContainerList.size() << " Measurement Containers");
   for (auto const& measurementContainer : measContainerList)
   {
-    _tracks[measurementContainer._id];
-    _tracks.at(measurementContainer._id).clear();
-    LOG_DEB("Process Measurement Container with " << measurementContainer._data.size() << " Measurements");
-    auto const& meas_model = *_manager->getMeasModelMap().at(measurementContainer._id);
-    for (auto const& measurement : measurementContainer._data)
+    _tracks[measurementContainer._source_id];
+    _tracks.at(measurementContainer._source_id).clear();
+    LOG_DEB("Process Measurement Container with " << measurementContainer._measurements.size() << " Measurements");
+    auto const& meas_model = _manager->getMeasModel(measurementContainer._source_id);
+    for (auto const& measurement : measurementContainer._measurements)
     {
-      auto state_dist = meas_model.createState(measurement, true).value();
-      _tracks.at(measurementContainer._id).push_back(std::move(state_dist));
+      auto state_dist = meas_model.create_state(measurement, true).value();
+      _tracks.at(measurementContainer._source_id).push_back(std::move(state_dist));
       _time = std::max(_time, measurement._time);
     }
   }
 }
 
-std::vector<State> NO_Tracker::getEstimate() const
+template <class UDT>
+std::vector<BernoulliState<UDT>> NO_Tracker<UDT>::get_estimate() const
 {
   LOG_DEB("Estimation with " + std::to_string(_tracks.size()) + " Tracks");
-  std::vector<State> tracks;
+  std::vector<BernoulliState<UDT>> tracks;
   for (auto const& [model_id, states] : _tracks)
   {
-    for (State const& state : states)
+    for (State<UDT> const& state : states)
     {
-      tracks.push_back(state);
+      tracks.emplace_back(state, 1);
     }
   }
   return tracks;
 }
 
-void NO_Tracker::reset()
+template <class UDT>
+std::vector<StateId> NO_Tracker<UDT>::all_tracks() const
+{
+  return {};
+}
+
+template <class UDT>
+void NO_Tracker<UDT>::reset()
 {
 }
 

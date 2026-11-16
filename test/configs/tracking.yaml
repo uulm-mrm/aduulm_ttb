@@ -157,12 +157,8 @@ glmb_distribution:
   do_profiling: false
   post_process_prediction:
     enable: false
-    pruning_threshold: 1e-5
-    max_hypotheses: 300
   post_process_update:
     enable: false
-    pruning_threshold: 1e-5
-    max_hypotheses: 300
   update:
     joint_prediction_and_update: true
     assignment_method: GIBBS_SAMPLING
@@ -175,17 +171,6 @@ glmb_distribution:
   extraction:
     type: CARDINALITY #Best Hypothesis #Existence Probability  # Cardinality
     threshold: 0.3
-  lmb_2_glmb_conversion:
-    type: ALL  # K_BEST  # ALL
-    all:
-      num_track_limit: 10
-      fallback_type: SAMPLING
-    kBest:
-      max_number_hypotheses: 2000
-    sampling:
-      max_number_hypotheses: 2000             # Max Number of created Hypotheses
-      percentage_of_weight_hypotheses: 0.9    # Percentage of all possible Hypotheses weights (of 1)
-      max_num_tries: 10000
 
 
 #### Filter ############################################################################################################

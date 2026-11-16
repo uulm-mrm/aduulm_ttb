@@ -18,21 +18,10 @@ int64_t to_nanoseconds(Duration dur)
   return std::chrono::duration<int64_t, std::nano>(dur).count();
 }
 
-std::string to_string(Duration dur)
-{
-  return "Duration: " + std::to_string(to_seconds(dur)) + "s";
-}
-
-std::string to_string(Time time)
-{
-  return "Time: " + std::to_string(to_nanoseconds(time.time_since_epoch()) / 1000000000ULL) + "s " +
-         std::to_string(to_nanoseconds(time.time_since_epoch()) % 1000000000ULL) + "ns";
-}
-
 namespace impl
 {
 template <class TYPE>
-std::optional<TYPE> to_TYPE(std::string param, std::map<TYPE, std::string> data)
+std::optional<TYPE> to_TYPE(std::string const& param, std::map<TYPE, std::string> const& data)
 {
   for (auto const& [state, str] : data)
   {
@@ -45,7 +34,7 @@ std::optional<TYPE> to_TYPE(std::string param, std::map<TYPE, std::string> data)
   return {};
 }
 template <class TYPE>
-std::string to_string(TYPE type, std::map<TYPE, std::string> data)
+std::string to_string(TYPE type, std::map<TYPE, std::string> const& data)
 {
   if (data.contains(type))
   {
@@ -60,6 +49,15 @@ std::string to_string(TYPE type, std::map<TYPE, std::string> data)
 }
 }  // namespace impl
 
+std::string to_string(STATE_TYPE type)
+{
+  return impl::to_string<STATE_TYPE>(type, impl::STATE_TYPE_2_STRING);
+}
+std::optional<STATE_TYPE> to_STATE_TYPE(std::string type)
+{
+  return impl::to_TYPE<STATE_TYPE>(std::move(type), impl::STATE_TYPE_2_STRING);
+}
+
 std::string to_string(SELECTION_STRATEGY type)
 {
   return impl::to_string<SELECTION_STRATEGY>(type, impl::SELECTION_STRATEGY_2_STRING);
@@ -67,6 +65,24 @@ std::string to_string(SELECTION_STRATEGY type)
 std::optional<SELECTION_STRATEGY> to_SELECTION_STRATEGY(std::string type)
 {
   return impl::to_TYPE<SELECTION_STRATEGY>(std::move(type), impl::SELECTION_STRATEGY_2_STRING);
+}
+
+std::string to_string(GLMB_POST_PROCESSING_METHOD type)
+{
+  return impl::to_string<GLMB_POST_PROCESSING_METHOD>(type, impl::GLMB_POST_PROCESSING_METHOD_2_STRING);
+}
+std::optional<GLMB_POST_PROCESSING_METHOD> to_GLMB_POST_PROCESSING_METHOD(std::string type)
+{
+  return impl::to_TYPE<GLMB_POST_PROCESSING_METHOD>(std::move(type), impl::GLMB_POST_PROCESSING_METHOD_2_STRING);
+}
+
+std::string to_string(TRACK_TO_TRACK_FUSION_STRATEGY type)
+{
+  return impl::to_string<TRACK_TO_TRACK_FUSION_STRATEGY>(type, impl::TRACK_TO_TRACK_FUSION_STRATEGY_2_STRING);
+}
+std::optional<TRACK_TO_TRACK_FUSION_STRATEGY> to_TRACK_TO_TRACK_FUSION_STRATEGY(std::string type)
+{
+  return impl::to_TYPE<TRACK_TO_TRACK_FUSION_STRATEGY>(std::move(type), impl::TRACK_TO_TRACK_FUSION_STRATEGY_2_STRING);
 }
 
 std::string to_string(STAGE type)
@@ -258,7 +274,7 @@ REFERENCE_POINT inverseRP(REFERENCE_POINT rp)
     case REFERENCE_POINT::BACK_RIGHT:
       return REFERENCE_POINT::FRONT_LEFT;
   }
-  DEBUG_ASSERT_MARK_UNREACHABLE;
+  std::unreachable();
 }
 std::string to_string(REFERENCE_POINT ref)
 {
@@ -350,12 +366,30 @@ std::optional<GLMB_ASSIGNMENT_METHOD> to_GLMB_UPDATE_METHOD(std::string type)
   return impl::to_TYPE(std::move(type), impl::RANKED_ASSIGNMENT_ALGORITHM_TYPE_2_STRING);
 }
 
-std::string to_string(MULTI_SENSOR_UPDATE_METHOD type)
+std::string to_string(LMB_MULTI_SENSOR_UPDATE_METHOD type)
 {
-  return impl::to_string(type, impl::MULTI_SENSOR_UPDATE_METHOD_TYPE_2_STRING);
+  return impl::to_string(type, impl::LMB_MULTI_SENSOR_UPDATE_METHOD_2_STRING);
 }
-std::optional<MULTI_SENSOR_UPDATE_METHOD> to_MULTI_SENSOR_UPDATE_METHOD(std::string type)
+std::optional<LMB_MULTI_SENSOR_UPDATE_METHOD> to_LMB_MULTI_SENSOR_UPDATE_METHOD(std::string type)
 {
-  return impl::to_TYPE(std::move(type), impl::MULTI_SENSOR_UPDATE_METHOD_TYPE_2_STRING);
+  return impl::to_TYPE(std::move(type), impl::LMB_MULTI_SENSOR_UPDATE_METHOD_2_STRING);
+}
+
+std::string to_string(PM_MULTI_SENSOR_UPDATE_METHOD type)
+{
+  return impl::to_string(type, impl::PM_MULTI_SENSOR_UPDATE_METHOD_2_STRING);
+}
+std::optional<PM_MULTI_SENSOR_UPDATE_METHOD> to_PM_MULTI_SENSOR_UPDATE_METHOD(std::string type)
+{
+  return impl::to_TYPE(std::move(type), impl::PM_MULTI_SENSOR_UPDATE_METHOD_2_STRING);
+}
+
+std::string to_string(GLMB_MULTI_SENSOR_UPDATE_METHOD type)
+{
+  return impl::to_string(type, impl::GLMB_MULTI_SENSOR_UPDATE_METHOD_2_STRING);
+}
+std::optional<GLMB_MULTI_SENSOR_UPDATE_METHOD> to_GLMB_MULTI_SENSOR_UPDATE_METHOD(std::string type)
+{
+  return impl::to_TYPE(std::move(type), impl::GLMB_MULTI_SENSOR_UPDATE_METHOD_2_STRING);
 }
 }  // namespace ttb

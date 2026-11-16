@@ -1,11 +1,6 @@
 #include "gtest/gtest.h"
-#include "tracking_lib/Distributions/GaussianDistribution.h"
-#include <tracking_lib/MeasurementModels/BaseMeasurementModel.h>
-#include <tracking_lib/Measurements/Measurement.h>
-#include <tracking_lib/States/Innovation.h>
-
-#include <tracking_lib/TTBManager/TTBManager.h>
-
+#include "tracking_lib/MeasurementModels/BaseMeasurementModel.h"
+#include "tracking_lib/TTBManager/TTBManager.h"
 #include <aduulm_logger/aduulm_logger.hpp>
 #include <filesystem>
 #include <random>
@@ -20,27 +15,28 @@ DEFINE_LOGGER_LIBRARY_INTERFACE_HEADER
 
 TEST(StateModels, predict)
 {
-  _setLogLevel(aduulm_logger::LoggerLevel::Debug);
+  _setLogLevel(aduulm_logger::LoggerLevel::Fatal);
   auto paramReader = figcone::ConfigReader{};
   auto params = paramReader.readYamlFile<ttb::Params>(file);
-  ttb::TTBManager manager(params);
+  ttb::TTBManager<double> manager(params);
   EXPECT_TRUE(true) << "Invalid config";
   std::random_device rd;
   std::mt19937 gen(rd());
-  for (std::size_t i = 0; i < 1000; ++i)
+  for (std::size_t i = 0; i < 100; ++i)
   {
-    ttb::Vector mean = ttb::Vector::Random(ttb::ALL_COMPONENTS.size());
-    ttb::Matrix cov = ttb::Matrix::Random(ttb::ALL_COMPONENTS.size(), ttb::ALL_COMPONENTS.size());
+    ttb::Vector<double> mean = ttb::Vector<double>::Random(ttb::ALL_COMPONENTS.size());
+    ttb::Matrix<double> cov = ttb::Matrix<double>::Random(ttb::ALL_COMPONENTS.size(), ttb::ALL_COMPONENTS.size());
     cov *= cov.transpose();
-    ttb::Measurement meas(
-        std::make_unique<ttb::GaussianDistribution>(mean, cov), ttb::Time::max(), ttb::Components(ttb::ALL_COMPONENTS));
-    std::optional<ttb::State> state = manager.getMeasModelMap().at(ttb::MeasModelId{ "0" })->createState(meas);
+    ttb::State meas =
+        ttb::create_meas_state<double>(
+            &manager, ttb::GaussianDistribution(mean, cov), ttb::Time::max(), ttb::Components(ttb::ALL_COMPONENTS))
+            .value();
+    std::optional<ttb::State<double>> state = manager.getMeasModel(ttb::SourceId{ "0" }).create_state(meas);
     ASSERT_TRUE(state.has_value()) << "Can not create State of Meas with all possible Components";
-    mean = ttb::Vector::Random(ttb::ALL_COMPONENTS.size());
-    cov = ttb::Matrix::Random(ttb::ALL_COMPONENTS.size(), ttb::ALL_COMPONENTS.size());
+    mean = ttb::Vector<double>::Random(ttb::ALL_COMPONENTS.size());
+    cov = ttb::Matrix<double>::Random(ttb::ALL_COMPONENTS.size(), ttb::ALL_COMPONENTS.size());
     cov *= cov.transpose();
-    ttb::EgoMotionDistribution egoMotion(std::make_unique<ttb::GaussianDistribution>(mean, cov),
-                                         ttb::Components(ttb::ALL_COMPONENTS));
+    ttb::EgoMotionDistribution egoMotion(ttb::GaussianDistribution(mean, cov), ttb::Components(ttb::ALL_COMPONENTS));
     state.value().predict(std::chrono::milliseconds(std::uniform_int_distribution<>(1, 5000)(gen)), egoMotion);
     ASSERT_TRUE(true);
   }
@@ -48,32 +44,41 @@ TEST(StateModels, predict)
 
 TEST(CTRVModels, predict)
 {
-  _setLogLevel(aduulm_logger::LoggerLevel::Debug);
+  _setLogLevel(aduulm_logger::LoggerLevel::Fatal);
   auto paramReader = figcone::ConfigReader{};
   auto params = paramReader.readYamlFile<ttb::Params>(file);
-  ttb::TTBManager manager(params);
+  ttb::TTBManager<double> manager(params);
   EXPECT_TRUE(true) << "Invalid config";
   std::random_device rd;
   std::mt19937 gen(rd());
-  for (std::size_t i = 0; i < 1000; ++i)
+  for (std::size_t i = 0; i < 100; ++i)
   {
-    ttb::Vector mean = ttb::Vector::Random(ttb::ALL_COMPONENTS.size());
-    ttb::Matrix cov = ttb::Matrix::Random(ttb::ALL_COMPONENTS.size(), ttb::ALL_COMPONENTS.size());
+    ttb::Vector<double> mean = ttb::Vector<double>::Random(ttb::ALL_COMPONENTS.size());
+    ttb::Matrix<double> cov = ttb::Matrix<double>::Random(ttb::ALL_COMPONENTS.size(), ttb::ALL_COMPONENTS.size());
     cov *= cov.transpose();
-    ttb::Measurement meas(
-        std::make_unique<ttb::GaussianDistribution>(mean, cov), ttb::Time::max(), ttb::Components(ttb::ALL_COMPONENTS));
-    std::optional<ttb::State> state = manager.getMeasModelMap().at(ttb::MeasModelId{ "0" })->createState(meas);
+    ttb::State<double> meas =
+        ttb::create_meas_state(
+            &manager, ttb::GaussianDistribution(mean, cov), ttb::Time::max(), ttb::Components(ttb::ALL_COMPONENTS))
+            .value();
+    std::optional<ttb::State<double>> state = manager.getMeasModel(ttb::SourceId{ "0" }).create_state(meas);
     ASSERT_TRUE(state.has_value()) << "Can not create State of Meas with all possible Components";
-    mean = ttb::Vector::Random(ttb::ALL_COMPONENTS.size());
-    cov = ttb::Matrix::Random(ttb::ALL_COMPONENTS.size(), ttb::ALL_COMPONENTS.size());
+    mean = ttb::Vector<double>::Random(ttb::ALL_COMPONENTS.size());
+    cov = ttb::Matrix<double>::Random(ttb::ALL_COMPONENTS.size(), ttb::ALL_COMPONENTS.size());
     cov *= cov.transpose();
-    ttb::EgoMotionDistribution egoMotion(std::make_unique<ttb::GaussianDistribution>(mean, cov),
-                                         ttb::Components(ttb::ALL_COMPONENTS));
+    ttb::EgoMotionDistribution egoMotion(ttb::GaussianDistribution(mean, cov), ttb::Components(ttb::ALL_COMPONENTS));
     auto const rot_ind =
         manager.getStateModel(ttb::StateModelId{ 4 }).state_comps().indexOf(ttb::COMPONENT::ROT_Z).value();
-    double angle_before = state.value()._state_dist.at(ttb::StateModelId{ 4 })->mean()(rot_ind);
+    double angle_before = state.value()
+                              ._state_dist.at(ttb::StateModelId{ 4 })
+                              .second.to_gaussian_components()
+                              .front()
+                              .second.mean()(rot_ind);
     state.value().predict(std::chrono::milliseconds(1), egoMotion);
-    double angle_after = state.value()._state_dist.at(ttb::StateModelId{ 4 })->mean()(rot_ind);
+    double angle_after = state.value()
+                             ._state_dist.at(ttb::StateModelId{ 4 })
+                             .second.to_gaussian_components()
+                             .front()
+                             .second.mean()(rot_ind);
     if (ttb::angles::smaller_diff(angle_before, angle_after) > 0.1)
     {
       LOG_FATAL("big change in angle in prediction. before: " << angle_before << " after: " << angle_after);

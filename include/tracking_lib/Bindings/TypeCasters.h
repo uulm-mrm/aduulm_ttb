@@ -51,29 +51,6 @@ struct type_caster<ttb::ObjectId>
 };
 
 template <>
-struct type_caster<ttb::MeasurementId>
-{
-  NB_TYPE_CASTER(ttb::MeasurementId, const_name("MeasurementId"))
-
-  bool from_python(handle src, uint8_t, cleanup_list*) noexcept
-  {
-    size_t size_p = PyLong_AsSize_t(src.ptr());
-    if (size_p == (size_t)-1)
-    {
-      PyErr_Clear();
-      return false;
-    }
-    value = ttb::MeasurementId(size_p);
-    return true;
-  }
-
-  static handle from_cpp(const ttb::MeasurementId& value, rv_policy, cleanup_list*) noexcept
-  {
-    return PyLong_FromSize_t(value.value_);
-  }
-};
-
-template <>
 struct type_caster<ttb::StateId>
 {
   NB_TYPE_CASTER(ttb::StateId, const_name("StateId"))
@@ -120,9 +97,9 @@ struct type_caster<ttb::Label>
 };
 
 template <>
-struct type_caster<ttb::MeasModelId>
+struct type_caster<ttb::SourceId>
 {
-  NB_TYPE_CASTER(ttb::MeasModelId, const_name("MeasModelId"))
+  NB_TYPE_CASTER(ttb::SourceId, const_name("MeasModelId"))
 
   bool from_python(handle src, uint8_t, cleanup_list*) noexcept
   {
@@ -133,11 +110,11 @@ struct type_caster<ttb::MeasModelId>
       PyErr_Clear();
       return false;
     }
-    value = ttb::MeasModelId(std::string(str, (size_t)size));
+    value = ttb::SourceId(std::string(str, (size_t)size));
     return true;
   }
 
-  static handle from_cpp(const ttb::MeasModelId& value, rv_policy, cleanup_list*) noexcept
+  static handle from_cpp(const ttb::SourceId& value, rv_policy, cleanup_list*) noexcept
   {
     return PyUnicode_FromStringAndSize(value.value_.c_str(), value.value_.size());
   }

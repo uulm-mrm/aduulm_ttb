@@ -53,15 +53,16 @@ public:
   /// find all connected components of the Graph using a bfs
   [[nodiscard]] std::vector<std::vector<NodeId>> components() const;
 
-  /// Find the k shortest paths between two nodes.
-  /// Attention: The weight of a path is the PRODUCT of the edge weights!
+  /// Find the k longest paths between two nodes (k paths with the highest logarithmic sum weight) .
+  /// Attention: The weight of a path is the SUM of the edge weights! The weights must be logarithmic if you want the
+  /// product weight
   /// @param strategy strategy type
   /// @param k max number of solutions which shall be calculated
   /// @param startNodeID start node of graph
   /// @param endNodeID end node of graph
   /// @return vector of paths with product weight
   [[nodiscard]] std::vector<std::pair<std::vector<EdgeId>, double>>
-  kShortestPath(SELECTION_STRATEGY strategy, std::size_t k, NodeId startNodeID, NodeId endNodeID) const;
+  kLongestPaths(SELECTION_STRATEGY strategy, std::size_t k, NodeId startNodeID, NodeId endNodeID) const;
   /// reset the Node and Edge Flags to false
   void resetFlags() const;
   /// return the outgoing edges from a node
@@ -76,14 +77,6 @@ public:
   std::vector<Edge> _edges;
   /// Node_Id -> vector of adjacent Edges
   std::vector<std::vector<EdgeId>> _graph;
-};
-
-/// This represents the special case of a unidirectional Graph
-/// This duplicates all specified edges and builds a directional graph
-class Graph : public DiGraph
-{
-public:
-  Graph(std::size_t num_nodes, std::vector<Edge> edges);
 };
 
 }  // namespace ttb::graph_impl

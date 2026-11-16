@@ -1,0 +1,177 @@
+#include "gtest/gtest.h"
+#include <tracking_lib/TTBManager/TTBManager.h>
+#include <tracking_lib/MultiObjectStateDistributions/LMBDistribution.h>
+#include <aduulm_logger/aduulm_logger.hpp>
+#include <filesystem>
+#include <figcone/configreader.h>
+
+using namespace std::literals;
+std::string const params_string{ "thread_pool_size: 0\n"
+                                 "version: 1.0.0\n"
+                                 "meas_models:\n"
+                                 "  gaussian_models:\n"
+                                 "    -\n"
+                                 "        gating_prob: 0.99\n"
+                                 "        id: 0\n"
+                                 "        components: [POS_X, POS_Y, LENGTH, WIDTH, ROT_Z]\n"
+                                 "        can_init: true\n"
+                                 "        clutter:\n"
+                                 "          intensity: 1.11408460164\n"
+                                 "        detection:\n"
+                                 "          prob: 0.67\n"
+                                 "          prob_min: 0.001\n"
+                                 "        occlusion:\n"
+                                 "          model: NO_OCCLUSION\n"
+                                 "        default_values:\n"
+                                 "          - type: [ NOT_CLASSIFIED ]\n"
+                                 "            mean:\n"
+                                 "              AZIMUTH: 0\n"
+                                 "            var:\n"
+                                 "              AZIMUTH: 0.00030462\n"
+                                 "    -\n"
+                                 "        id: 1\n"
+                                 "        components: [POS_X, POS_Y, LENGTH, WIDTH, ROT_Z]\n"
+                                 "        can_init: true\n"
+                                 "        clutter:\n"
+                                 "          intensity: 1.11408460164\n"
+                                 "        detection:\n"
+                                 "          prob: 0.67\n"
+                                 "          prob_min: 0.001\n"
+                                 "        occlusion:\n"
+                                 "          model: NO_OCCLUSION\n"
+                                 "        default_values:\n"
+                                 "          - type: [ NOT_CLASSIFIED ]\n"
+                                 "            mean:\n"
+                                 "              AZIMUTH: 0\n"
+                                 "            var:\n"
+                                 "              AZIMUTH: 0.00030462\n"
+                                 "        gating_prob: 0.99\n"
+                                 "state:\n"
+                                 "  multi_model:\n"
+                                 "    use_state_models: [1, 2]\n"
+                                 "    birth_weights:    [0.5, 0.5]\n"
+                                 "  classification:\n"
+                                 "    use_meas_models: [0]\n"
+                                 "    classes: [NOT_CLASSIFIED]\n"
+                                 "    use_union_classes: true\n"
+                                 "    discount_factor_prediction: 0.98\n"
+                                 "  estimation:\n"
+                                 "    transform_output_state: false\n"
+                                 "    output_state_model: 1\n"
+                                 "    type: BEST_STATE_MODEL\n"
+                                 "state_models:\n"
+                                 "    -\n"
+                                 "      id: 1\n"
+                                 "      type: CV\n"
+                                 "      extent: NONE\n"
+                                 "      distribution:\n"
+                                 "        type: GAUSSIAN\n"
+                                 "        mixture: true\n"
+                                 "        extraction_type: BEST_COMPONENT\n"
+                                 "        post_process:\n"
+                                 "          enable: true\n"
+                                 "          max_components: 10\n"
+                                 "          merging_distance: 0.0000001\n"
+                                 "          min_weight: 0.01\n"
+                                 "          max_variance: 100\n"
+                                 "      model_noise_std_dev:\n"
+                                 "        ACC_X: 0.2\n"
+                                 "        ACC_Y: 0.2\n"
+                                 "        VEL_Z: 0.001\n"
+                                 "        WIDTH_CHANGE: 0.001\n"
+                                 "        LENGTH_CHANGE: 0.001\n"
+                                 "        HEIGHT_CHANGE: 0.001\n"
+                                 "    -\n"
+                                 "      id: 2\n"
+                                 "      type: CV\n"
+                                 "      extent: NONE\n"
+                                 "      distribution:\n"
+                                 "        type: GAUSSIAN\n"
+                                 "        mixture: true\n"
+                                 "        extraction_type: BEST_COMPONENT\n"
+                                 "        post_process:\n"
+                                 "          enable: true\n"
+                                 "          max_components: 10\n"
+                                 "          merging_distance: 0.0000001\n"
+                                 "          min_weight: 0.01\n"
+                                 "          max_variance: 100\n"
+                                 "      model_noise_std_dev:\n"
+                                 "        ACC_X: 0.2\n"
+                                 "        ACC_Y: 0.2\n"
+                                 "        VEL_Z: 0.001\n"
+                                 "        WIDTH_CHANGE: 0.001\n"
+                                 "        LENGTH_CHANGE: 0.001\n"
+                                 "        HEIGHT_CHANGE: 0.001\n"
+                                 "    -\n"
+                                 "      id: 3\n"
+                                 "      type: CV\n"
+                                 "      extent: NONE\n"
+                                 "      distribution:\n"
+                                 "        type: GAUSSIAN\n"
+                                 "        mixture: false\n"
+                                 "        extraction_type: BEST_COMPONENT\n"
+                                 "        post_process:\n"
+                                 "          enable: true\n"
+                                 "          max_variance: 100\n"
+                                 "      model_noise_std_dev:\n"
+                                 "        ACC_X: 0.2\n"
+                                 "        ACC_Y: 0.2\n"
+                                 "        VEL_Z: 0.001\n"
+                                 "        WIDTH_CHANGE: 0.001\n"
+                                 "        LENGTH_CHANGE: 0.001\n"
+                                 "        HEIGHT_CHANGE: 0.001\n"
+                                 "birth_model:\n"
+                                 "  type: DYNAMIC\n"
+                                 "  allow_overlapping: true\n"
+                                 "  min_mhd_4_overlapping_wo_extent: 1\n"
+                                 "  default_birth_existence_prob: 0.05\n"
+                                 "  dynamic_model: \n"
+                                 "    mean_num_birth: 2.\n"
+                                 "    birth_threshold: 0.1\n"
+                                 "persistence_model:\n"
+                                 "  type: CONSTANT\n"
+                                 "  constant:\n"
+                                 "    persistence_prob: 0.99\n"
+                                 "lmb_distribution:\n"
+                                 "  update_method: LBP\n"
+                                 "  post_process_prediction:\n"
+                                 "    enable: false\n"
+                                 "    max_tracks: 1000000\n"
+                                 "    pruning_threshold: 0\n"
+                                 "    max_last_assoc_duration_ms: 50\n"
+                                 "  post_process_update:\n"
+                                 "    enable: true\n"
+                                 "    max_tracks: 1000000000\n"
+                                 "    pruning_threshold: 1e-8\n"
+                                 "  extraction:\n"
+                                 "    type: EXISTENCE_PROBABILITY  #Cardinality\n"
+                                 "    threshold: 0.5\n"
+                                 "filter:\n"
+                                 "  enable: true\n"
+                                 "  type: LMB_IC\n" };
+
+constexpr double TOL{ 1e-5 };
+
+DEFINE_LOGGER_LIBRARY_INTERFACE_HEADER
+
+TEST(State, create_and_destroy)
+{
+  _setLogLevel(aduulm_logger::LoggerLevel::Fatal);
+  auto paramReader = figcone::ConfigReader{};
+  auto params = paramReader.readYaml<ttb::Params>(params_string);
+  ttb::TTBManager<double> manager(params);
+  ttb::Vector<double> mean = ttb::Vector<double>::Zero(1);
+  ttb::Matrix<double> cov = ttb::Matrix<double>::Identity(1, 1);
+  std::map<ttb::StateModelId, std::vector<std::pair<double, ttb::GaussianDistribution<double>>>> dist;
+  dist[ttb::StateModelId{ 1 }].emplace_back(0.00001, ttb::GaussianDistribution<double>(mean, cov));
+  dist[ttb::StateModelId{ 1 }].emplace_back(0.1, ttb::GaussianDistribution<double>(mean, 500 * cov));
+  dist[ttb::StateModelId{ 1 }].emplace_back(1, ttb::GaussianDistribution<double>(mean, cov));
+  dist[ttb::StateModelId{ 2 }].emplace_back(0.1, ttb::GaussianDistribution<double>(mean, 500 * cov));
+  dist[ttb::StateModelId{ 3 }].emplace_back(0.1, ttb::GaussianDistribution<double>(mean, 500 * cov));
+  ttb::State state(&manager, std::move(dist));
+  EXPECT_EQ(state._state_dist.size(), 3);
+  EXPECT_EQ(state._state_dist.at(ttb::StateModelId{ 1 }).second.to_gaussian_components().size(), 3);
+  state.postProcess();
+  EXPECT_EQ(state._state_dist.size(), 1);
+  EXPECT_EQ(state._state_dist.at(ttb::StateModelId{ 1 }).second.to_gaussian_components().size(), 1);
+}

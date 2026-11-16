@@ -6,6 +6,8 @@ Stone Soup Bridge: Using Tracking Toolbox (TTB) in Stone Soup Environment
 =========================================================================
 """
 import datetime
+import math
+import time
 import timeit
 from datetime import timedelta
 
@@ -14,6 +16,8 @@ import numpy as np
 
 import pathlib
 import os
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__))))
 
 import stonesoup
 from matplotlib.dates import num2date, SecondLocator, MicrosecondLocator
@@ -37,9 +41,12 @@ from tracking_lib import _tracking_lib_python_api as _api
 from tracking_lib import TTB
 from tracking_lib._tracking_lib_python_api import Component
 from tracking_lib.utils import get_estimate_from_state
+# from ..tracking_simulator.gospa import GOSPA
+from tracking_simulator.gospa import GOSPA
 
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FuncFormatter, MultipleLocator
+import pickle
 
 """
 ==============================================
@@ -56,12 +63,17 @@ class Sensor_TTB(SimpleSensor):
         doc="Measurement model that creates Detections and Clutter")
 
     detection_probability: float= Property(
-        default=0.8,
+        default=0.9,
         doc="Probability that a detection will be received"
     )
 
     probability_estimation: bool= Property(
         default=False
+    )
+
+    recycling_threshold: float = Property(
+        default=0.2,
+        doc="Probability threshold for recycling (i.e. PMBM)"
     )
 
 
@@ -200,12 +212,17 @@ def plot_all_gospas(gospa_metrics, gospa_gen_name: str | list[str]):
         gospa_metrics_dict["gospa_false"].append(gospa_false)
         gospa_metrics_dict["gospa_switching"].append(gospa_switching)
 
+    gospa_metrics_dict["gospa_timesteps"] = list(range(len(gospa_metrics_dict["gospa_distances"][0])))
+
     ax1 = plt.subplot2grid(shape=(3, 4), loc=(0, 0), colspan=2)
     ax2 = plt.subplot2grid((3, 4), (0, 2), colspan=2)
     ax3 = plt.subplot2grid((3, 4), (2, 1), colspan=2)
     ax4 = plt.subplot2grid((3, 4), (1, 2), colspan=2)
     ax5 = plt.subplot2grid((3, 4), (1, 0), colspan=2)
 
+    # timesteps_in_seconds = False
+    # if gospa_metrics_dict["gospa_timesteps"][1] - gospa_metrics_dict["gospa_timesteps"][0] >= timedelta(seconds=1):
+    #     timesteps_in_seconds = True
 
     def format_date(a, b):
         t=num2date(a)
@@ -216,37 +233,37 @@ def plot_all_gospas(gospa_metrics, gospa_gen_name: str | list[str]):
     plt.suptitle(f"All GOSPA Metrics")
 
     ax1.set_title("Distance")
-    ax1.xaxis.set_major_locator(SecondLocator(interval=1))
-    ax1.xaxis.set_major_formatter(FuncFormatter(format_date))
-    ax1.xaxis.set_minor_locator(MicrosecondLocator(100000))
-    ax1.set_xlabel("t in seconds")
+    # ax1.xaxis.set_major_locator(SecondLocator(interval=1))
+    # ax1.xaxis.set_major_formatter(FuncFormatter(format_date))
+    # if not timesteps_in_seconds: ax1.xaxis.set_minor_locator(MicrosecondLocator(100000))
+    # ax1.set_xlabel("t in seconds")
     for idx, data in enumerate(gospa_metrics_dict["gospa_distances"]):
         ax1.plot(gospa_metrics_dict["gospa_timesteps"], data, label=gospa_metrics_dict["gospa_gen_names"][idx])
     ax1.legend(loc="best")
 
     ax2.set_title("Localisation")
-    ax2.xaxis.set_major_locator(SecondLocator(interval=1))
-    ax2.xaxis.set_major_formatter(FuncFormatter(format_date))
-    ax2.xaxis.set_minor_locator(MicrosecondLocator(100000))
-    ax2.set_xlabel("t in seconds")
+    # ax2.xaxis.set_major_locator(SecondLocator(interval=1))
+    # ax2.xaxis.set_major_formatter(FuncFormatter(format_date))
+    # if not timesteps_in_seconds: ax2.xaxis.set_minor_locator(MicrosecondLocator(100000))
+    # ax2.set_xlabel("t in seconds")
     for idx, data in enumerate(gospa_metrics_dict["gospa_localisation"]):
         ax2.plot(gospa_metrics_dict["gospa_timesteps"], data, label=gospa_metrics_dict["gospa_gen_names"][idx])
     ax2.legend(loc="best")
 
     ax3.set_title("Switching")
-    ax3.xaxis.set_major_locator(SecondLocator(interval=1))
-    ax3.xaxis.set_major_formatter(FuncFormatter(format_date))
-    ax3.xaxis.set_minor_locator(MicrosecondLocator(100000))
-    ax3.set_xlabel("t in seconds")
+    # ax3.xaxis.set_major_locator(SecondLocator(interval=1))
+    # ax3.xaxis.set_major_formatter(FuncFormatter(format_date))
+    # if not timesteps_in_seconds: ax3.xaxis.set_minor_locator(MicrosecondLocator(100000))
+    # ax3.set_xlabel("t in seconds")
     for idx, data in enumerate(gospa_metrics_dict["gospa_switching"]):
         ax3.plot(gospa_metrics_dict["gospa_timesteps"], data, label=gospa_metrics_dict["gospa_gen_names"][idx])
     ax3.legend(loc="best")
 
     ax4.set_title("Missed")
-    ax4.xaxis.set_major_locator(SecondLocator(interval=1))
-    ax4.xaxis.set_major_formatter(FuncFormatter(format_date))
-    ax4.xaxis.set_minor_locator(MicrosecondLocator(100000))
-    ax4.set_xlabel("t in seconds")
+    # ax4.xaxis.set_major_locator(SecondLocator(interval=1))
+    # ax4.xaxis.set_major_formatter(FuncFormatter(format_date))
+    # if not timesteps_in_seconds: ax4.xaxis.set_minor_locator(MicrosecondLocator(100000))
+    # ax4.set_xlabel("t in seconds")
     ax4.set_ylabel("Number of missed tracks")
     ax4.yaxis.set_major_locator(MultipleLocator(1))
     for idx, data in enumerate(gospa_metrics_dict["gospa_missed"]):
@@ -254,17 +271,18 @@ def plot_all_gospas(gospa_metrics, gospa_gen_name: str | list[str]):
     ax4.legend(loc="best")
 
     ax5.set_title("False")
-    ax5.xaxis.set_major_locator(SecondLocator(interval=1))
-    ax5.xaxis.set_major_formatter(FuncFormatter(format_date))
-    ax5.xaxis.set_minor_locator(MicrosecondLocator(100000))
-    ax5.set_xlabel("t in seconds")
+    # ax5.xaxis.set_major_locator(SecondLocator(interval=1))
+    # ax5.xaxis.set_major_formatter(FuncFormatter(format_date))
+    # if not timesteps_in_seconds: ax5.xaxis.set_minor_locator(MicrosecondLocator(100000))
+    # ax5.set_xlabel("t in seconds")
     ax5.set_ylabel("Number of false tracks")
     ax5.yaxis.set_major_locator(MultipleLocator(1))
     for idx, data in enumerate(gospa_metrics_dict["gospa_false"]):
         ax5.plot(gospa_metrics_dict["gospa_timesteps"], data, label=gospa_metrics_dict["gospa_gen_names"][idx])
     ax5.legend(loc="best")
 
-    plt.tight_layout(pad=0, h_pad=-1.4, w_pad=-2)
+    plt.tight_layout(pad=0.5, h_pad=-1, w_pad=-1.5)
+    plt.subplots_adjust(left=0.03, top = 0.9, bottom=0.05)
 
 
     return plt
@@ -339,8 +357,8 @@ _config_defaults = {
     "<CTP_EXTENT>" : "RECTANGULAR",
     "<CP_EXTENT>" : "NONE",
     "<CTRV_EXTENT>" : "RECTANGULAR",
-    "<CV_NOISE_ACC_X>" : 0.2,
-    "<CV_NOISE_ACC_Y>" : 0.2,
+    "<CV_NOISE_ACC_X>" : 0.1,
+    "<CV_NOISE_ACC_Y>" : 0.1,
     "<CV_NOISE_VEL_Z>" : 0.001,
     "<CTRV_NOISE_VEL_Z>" : 0.1,
     "<CTRV_NOISE_ACC_ABS>" : 5,
@@ -350,7 +368,11 @@ _config_defaults = {
     "<CTP_NOISE_VEL_Z>" : 1,
     "<CP_NOISE_VEL_X>" : 5,
     "<CP_NOISE_VEL_Y>" : 5,
-    "<CP_NOISE_VEL_Z>" : 1
+    "<CP_NOISE_VEL_Z>" : 1,
+}
+
+_pmbm_defaults = {
+    "<RECYCLING_THRESHOLD>" : 0.2
 }
 
 # %%
@@ -380,7 +402,7 @@ def create_config_file_and_ttb_manager(transition_model: stonesoup.models.transi
 
     if hasattr(transition_model, "model_list"):
         for i in range(len(transition_model.model_list)):
-            config_dict[relevant_keys[i+1]] = transition_model.model_list[i].noise_diff_coeff
+            config_dict[relevant_keys[i+1]] = math.sqrt(transition_model.model_list[i].noise_diff_coeff)
     # elif hasattr(transition_model, "noise_diff_coeff"):
     #     for i in range(1, transition_model.ndim + 1):
     #         config_dict[relevant_keys[i]] = transition_model.noise_diff_coeff
@@ -401,7 +423,9 @@ def create_config_file_and_ttb_manager(transition_model: stonesoup.models.transi
             # print("new:", new)
             relevant_keys[number_of_keys_per_sensor*s + key] = new
 
-
+    print("1:   ", sensors[0].recycling_threshold)
+    _pmbm_defaults['<RECYCLING_THRESHOLD>'] = sensors[0].recycling_threshold
+    config_dict.update(_pmbm_defaults)
 
     # configure sensor(s)
     for s in range(len(sensors)):
@@ -416,8 +440,11 @@ def create_config_file_and_ttb_manager(transition_model: stonesoup.models.transi
                 config_dict[relevant_keys[number_of_keys_per_sensor * s + key]] = str.lower(str(sensors[s].probability_estimation))
 
 
+    folder_dir = str(pathlib.Path(
+        os.path.dirname(os.path.realpath(__file__))))
+
     # read yaml template into string variable
-    with open(pathlib.Path(__file__).parent.resolve() / "config_template.yaml") as yaml_file:
+    with open(folder_dir + "/config_template.yaml") as yaml_file:
         yaml_string = yaml_file.readlines()
 
     # extract meas_models part
@@ -453,12 +480,17 @@ def create_config_file_and_ttb_manager(transition_model: stonesoup.models.transi
             all_string[index] = all_string[index].replace(parameter, str(config_dict[parameter]))
 
 
-    with open(pathlib.Path(__file__).parent.resolve() /"config_file.yaml", "w") as config_file:
+
+
+    with open(folder_dir + "/config_file.yaml", "w") as config_file:
         for line in all_string:
             config_file.write(line)
 
+
     # create TTB Manager
-    ttb = TTB(pathlib.Path(pathlib.Path(__file__).parent.resolve() /"config_file.yaml"))
+    config = folder_dir + "/config_file.yaml"
+
+    ttb = TTB(pathlib.Path(config))
 
     if delete_config_file_after_use:
         delete_config_file()
@@ -467,7 +499,8 @@ def create_config_file_and_ttb_manager(transition_model: stonesoup.models.transi
 
 
 def get_fov_sensor(sensor: SimpleSensor ,
-                   position_mapping = (0, 1)):
+                   position_mapping = (0, 1),
+                   buffer = 0.0):
     try:
         x_values = sensor.clutter_model.dist_params[position_mapping[0]]
         y_values = sensor.clutter_model.dist_params[position_mapping[1]]
@@ -478,8 +511,8 @@ def get_fov_sensor(sensor: SimpleSensor ,
         else:
             raise
 
-    x_buffer = (max(x_values) - min(x_values))*0.05
-    y_buffer = (max(y_values) - min(y_values))*0.05
+    x_buffer = (max(x_values) - min(x_values))*buffer
+    y_buffer = (max(y_values) - min(y_values))*buffer
     fov_sensor = np.array([[max(x_values)+x_buffer, min(y_values)-y_buffer],
                            [max(x_values)+x_buffer, max(y_values)+y_buffer],
                            [min(x_values)-x_buffer, max(y_values)+y_buffer],
@@ -507,7 +540,14 @@ def transform_dets_to_meas_container(detections: set[stonesoup.types.detection],
     sensor_info._sensor_fov = _api.FieldOfView()
     sensor_info._sensor_fov.set_covered_area(fov_polygon)
     container._sensor_info = sensor_info
+    prediction_info = _api.PredictionInformation()
+    prediction_info._roi = _api.FieldOfView()
+    prediction_info._roi.set_covered_area(fov_polygon)
+    container._prediction_info = prediction_info
     container._measurements = [transform_det_to_meas(detection, time, state_model, sensor_model) for detection in detections]
+    if len(container._measurements) == 0:
+        # print("container._measurements is empty")
+        return _api.MeasurementContainer()
     return container
 
 # Transforms one Stone Soup Detection to a TTB Measurement
@@ -593,43 +633,74 @@ def transform_estimations_to_tracks(estimations: list[dict],
                     tracks_ttb.add(new_track)
     return tracks_ttb
 
+# %%
+def plot_gospa(mc_results):
+    gospa = mc_results
+    fig, ax = plt.subplots()
+    fig.suptitle("GOSPA")
+    print(gospa.keys())
+    mean_gospa = [ np.mean([v['distance'] for v in gospa[time]]) for time in gospa]
+    print(f'Mean Gospa {np.mean(mean_gospa)}')
+    ax.plot([t for t in gospa.keys()], mean_gospa, label='Gospa')
+    gospa_loc = [ np.mean([v['localization'] for v in gospa[time]]) for time in gospa]
+    print(f'Mean Gospa Loc {np.mean(gospa_loc)}')
+    ax.plot([t for t in gospa.keys()], gospa_loc, label='Gospa Loc')
+    gospa_missed = [ np.mean([v['num_missed'] for v in gospa[time]]) for time in gospa]
+    print(f'Mean Gospa Missed {np.mean(gospa_missed)}')
+    ax.plot([t for t in gospa.keys()], gospa_missed, label='#Missed')
+    gospa_false = [ np.mean([v['num_false'] for v in gospa[time]]) for time in gospa]
+    print(f'Mean Gospa False {np.mean(gospa_false)}')
+    ax.plot([t for t in gospa.keys()], gospa_false, label='#False')
+    ax.legend()
 
+
+# %%
 """
 ====================================
 FUNCTION TO REALIZE TRACKING VIA TTB
 ====================================
 """
-# %%
 def track_via_ttb(transition_model,
                   measurement_model,
                   timesteps: list[datetime],
                   all_measurements: list[list[set]],
                   sensors: list[Sensor_TTB],
-                  position_mapping: tuple):
+                  position_mapping: tuple,
+                  truths: any = None):
+
+
 
     sensor_ids = []
     for i in range(len(sensors)):
         sensor_ids.append("sim" + str(i))
 
     # Create TTB Manager and Config File dynamically out of transition and measurement models
-    ttb = create_config_file_and_ttb_manager(transition_model, sensors)
+    ttb = create_config_file_and_ttb_manager(transition_model, sensors, delete_config_file_after_use=False)
     # ttb = TTB(pathlib.Path(pathlib.Path(__file__).parent.resolve() /"config_file.yaml"))
-    _api.set_log_level("Error")
+    _api.set_log_level("Fatal") # "Warning", "Debug", "Fatal"
+    _api.set_log_level("Fatal")
     estimation_results = []
+    gospa_result = {}
+    c = 10
+    p = 2
+    gospa = GOSPA(c=c, p=p, alpha=2, mapping=[0, 1])
     fovs = []
     for i in range(len(sensors)):
         fovs.append(get_fov_sensor(sensors[i], position_mapping))
     rt = []
     for idx, measurements in enumerate(all_measurements):
         # ^(idx, measurements)
+        print(idx, end=", ", flush=True)
         sim_time = timesteps[idx]
         meas = []
+        # print("# of sensors:", len(sensors))
         for sensor_id in range(len(sensors)):
             meas.append(transform_dets_to_meas_container(measurements[sensor_id], sim_time,
                                                         sensor_id=sensor_ids[sensor_id],
                                                         fov_polygon=fovs[sensor_id],
                                                         state_model=transition_model,
                                                         sensor_model=measurement_model))
+        #print(meas)
         start = timeit.default_timer()
         ttb.cycle_tracking(sim_time, meas)
         rt.append(timeit.default_timer()-start)
@@ -637,9 +708,37 @@ def track_via_ttb(transition_model,
                    estimation=[get_estimate_from_state(obj, ttb.manager) for obj in ttb.getEstimate()])
 
         estimation_results.append(est)
+        # print(est['estimation'])
+        # GOSPA
+        if not truths is None:
+            t_matlab = [[est.mean[0], est.mean[1]] for est in est['estimation']]
+            gt_matlab = [[truths[idx][i], truths[idx][i + 2]] for i in range(0, len(truths[idx]) - 2, 4) if not (truths[idx][i] == 0 and truths[idx][i + 2] == 0)]
+            gospa_res = gospa.compute_gospa_metric(t_matlab, gt_matlab)
+            gospa_result[idx] = gospa_res
 
+    with open("src/tracking/library/python/stonesoup_bridge/evaluation/gospa_ttb.pkl", "wb") as f:
+        pickle.dump(gospa_result, f)
 
     estimations_ttb = transform_estimations_to_tracks(estimations=estimation_results,
                                                       transition_model=transition_model,
                                                       measurement_model=measurement_model)
+    print("\n")
+    # print(gospa_result)
+    # input("Press any Key to continue")
     return estimations_ttb, np.mean(rt)
+
+
+# if __name__ == '__main__':
+#     config_file = pathlib.Path(
+#         os.path.dirname(os.path.realpath(__file__)) + '/../../tutorials/lmb_fpm_dynamic_birth.yaml')
+#     # config_file = pathlib.Path(
+#     #     os.path.dirname(os.path.realpath(__file__)) + '/config_file.yaml')
+#     print(config_file, type(config_file))
+#
+#     if not config_file.exists():
+#         print(f"Die Datei existiert nicht: {config_file}")
+#     else:
+#         print(f"Die Datei existiert: {config_file}")
+#
+#     # print(pathlib.Path(__file__).with_name("config_file.yaml"))
+#     ttb = _api.TTBManager(config_file)

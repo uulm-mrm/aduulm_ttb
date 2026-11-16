@@ -3,7 +3,10 @@
 namespace ttb
 {
 
-Indices propAllocation(size_t T, Vector const& weights, double share)
+template Indices propAllocation(size_t T, Vector<double> const& weights, double share);
+template Indices propAllocation(size_t T, Vector<AD> const& weights, double share);
+template <class UDT>
+Indices propAllocation(size_t T, Vector<UDT> const& weights, double share)
 {
   assert(share >= 0 and share <= 1);
   Indices alloc_slots = Indices::Zero(weights.rows());
@@ -18,14 +21,14 @@ Indices propAllocation(size_t T, Vector const& weights, double share)
   // Allocate equally one slot to the best hyps
   if (equal_share_slots > 0)
   {
-    std::vector<std::size_t> inds(weights.size());
+    std::vector<std::size_t> inds(weights.rows());
     std::iota(inds.begin(), inds.end(), 0);
-    std::ranges::nth_element(inds,
-                             std::next(inds.begin(), std::min(equal_share_slots, static_cast<Index>(inds.size()))),
-                             [&](std::size_t a, std::size_t b) { return weights(a) > weights(b); });
+    std::ranges::nth_element(inds, std::next(inds.begin(), equal_share_slots), [&](std::size_t a, std::size_t b) {
+      return weights(a) > weights(b);
+    });
     for (Index i = 0; i < equal_share_slots; ++i)
     {
-      alloc_slots(i)++;
+      ++alloc_slots(inds[i]);
     }
   }
   assert([&] {  // NOLINT
@@ -38,7 +41,7 @@ Indices propAllocation(size_t T, Vector const& weights, double share)
   }());
 
   // Allocate the others by weight
-  alloc_slots = alloc_slots + (weights * static_cast<double>(Tp)).array().cast<Index>();
+  alloc_slots = alloc_slots + (weights * static_cast<double>(Tp)).array().template cast<Index>();
 
   assert([&] {  // NOLINT
     if (alloc_slots.sum() > static_cast<Index>(T))
@@ -54,7 +57,7 @@ Indices propAllocation(size_t T, Vector const& weights, double share)
   assert(n_rest <= alloc_slots.size());
   for (Index i = 0; i < n_rest and i < alloc_slots.size(); ++i)
   {
-    alloc_slots(i)++;
+    ++alloc_slots(i);
   }
 
   assert([&] {  // NOLINT

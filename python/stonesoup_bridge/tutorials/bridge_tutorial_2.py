@@ -66,6 +66,11 @@ ground_truth_simulator = MultiTargetGroundTruthSimulator(
 ground_truths, gt_sim_clutter, *gt_sims = tee(ground_truth_simulator, 3)
 
 # %%
+
+gt_iter = iter(ground_truths)
+#%%
+next(gt_iter)
+# %%
 """
 ========================================
 CREATING ONE SENSOR PLATFORM WITH CLUTTER
@@ -78,7 +83,7 @@ from stonesoup.models.clutter.clutter import ClutterModel
 
 from stonesoup_bridge.bridge import Sensor_TTB
 
-cov = 2
+cov = 0.2
 position_mapping = (0, 2)
 measurement_model = LinearGaussian(
     ndim_state=5,
@@ -98,7 +103,8 @@ clutter_model = ClutterModel(
 
 
 sensor = Sensor_TTB(measurement_model=measurement_model,
-                    clutter_model=clutter_model)
+                    clutter_model=clutter_model,
+                    detection_probability=0.9)
 
 # Import the platform to place the sensors on
 from stonesoup.platform.base import FixedPlatform

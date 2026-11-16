@@ -1,33 +1,34 @@
 #pragma once
 
-#include "tracking_lib/TTTFilters/BaseTTTFilter.h"
-
-#include "tracking_lib/TTBTypes/Params.h"
+#include "tracking_lib/TTBTypes/Concepts.h"
 
 namespace ttb
 {
 
-class TTBManager;
-
-class NoTTTFilter : public BaseTTTFilter
+template <class UDT>
+class NoTTTFilter
 {
 public:
-  explicit NoTTTFilter(TTBManager* manager);
+  explicit NoTTTFilter(TTBManager<UDT>* manager);
 
-  void cycle(Time time, std::vector<StateContainer> trackContainers) override;
+  void cycle(std::vector<DataSourceContainer<UDT>> trackContainers);
 
-  [[nodiscard]] std::vector<State> getEstimate() const override;
+  [[nodiscard]] std::vector<BernoulliState<UDT>> get_estimate() const;
 
-  [[nodiscard]] TTBManager* manager() const override;
+  [[nodiscard]] std::vector<StateId> all_tracks() const;
 
-  [[nodiscard]] Time time() const override;
+  [[nodiscard]] TTBManager<UDT>* manager() const;
 
-  [[nodiscard]] TTT_FILTER_TYPE type() const override;
+  [[nodiscard]] Time time() const;
 
-  void reset() override;
+  [[nodiscard]] TTT_FILTER_TYPE type() const;
 
-  TTBManager* _manager;
-  std::vector<State> _tracks;
+  void reset();
+
+  TTBManager<UDT>* _manager;
+  std::vector<State<UDT>> _tracks;
 };
+
+static_assert(CPTTracker<NoTTTFilter<double>, double>);
 
 }  // namespace ttb

@@ -1,12 +1,27 @@
 thread_pool_size: 20
 show_gui: true
 version: 1.0.0
+save_all_data: true
+ground_truth_metrics:
+  ospa:
+    evaluate: true
+    c: 10
+    p: 2
+  ospa2:
+    evaluate: true
+    c: 10
+    p: 2
+    sliding_window_length_ms: 1000
+  gospa:
+    evaluate: true
+    c: 10
+    p: 2
 
 ##### Measurement Models ###############################################################################################
 meas_models:
   gaussian_models:
     -
-      id: sim0
+      id: sim0*
       components: [ POS_X, POS_Y, LENGTH, WIDTH, ROT_Z ]
       can_init: true
       gating_prob: 0.99999
@@ -15,13 +30,14 @@ meas_models:
         rate_estimation:
           enable: true
           use_in_filter: false
+          prior_var: 10
       detection:
         prob: 0.8
         prob_min: 0.01
         prob_estimation:
           enable: true
           use_in_filter: false
-#          prior_var: 0.001
+          prior_var: 0.0005
       occlusion:
         model: NO_OCCLUSION
       default_values:
@@ -47,6 +63,8 @@ meas_models:
         rate_estimation:
           enable: true
           use_in_filter: false
+          prior_var: 10
+
       detection:
         prob: 0.8
         prob_min: 0.01
@@ -165,7 +183,7 @@ meas_models:
 #### StateDistributions
 state:
   multi_model:
-    use_state_models: [0]
+    use_state_models: [4]
     birth_weights:    [1]
   classification:
     use_meas_models:
@@ -192,13 +210,13 @@ state_models:
       post_process:
         enable: true
         max_components: 10
-        merging_distance: 0.0000001
+        merging_distance: 0.1
         min_weight: 0.001
-        max_variance: 1000
+        max_variance: 30
     extent: NONE
     model_noise_std_dev:
-      ACC_X: 0.2
-      ACC_Y: 0.2
+      ACC_X: 0.1
+      ACC_Y: 0.1
       VEL_Z: 0.001
       WIDTH_CHANGE: 0.001
       LENGTH_CHANGE: 0.001
@@ -243,7 +261,9 @@ birth_model:
     use_default_values: true
     default_values:
       - var:
-          VEL_ABS: 2
+          POS_X: 10
+          POS_Y: 10
+          VEL_ABS: 10
           VEL_X: 10
           VEL_Y: 10
   static_model:
@@ -295,7 +315,7 @@ birth_model:
 persistence_model:
   type: CONSTANT
   constant:
-    persistence_prob: 0.9
+    persistence_prob: 0.99
 
 #### MO State Dist #####################################################################################################
 # LMB --------------
@@ -317,12 +337,28 @@ lmb_distribution:
 
 
 self_assessment:
+  enable: true
+  track_assessment:
+    window_length_ms: 500
   clutter_rate_estimation:
-    static_discount: 0.999
-    dynamic_discount_alpha: 0.0001
+    enable: true
   detection_prob_estimation:
-    static_discount: 0.999
-    dynamic_discount_alpha: 0.0001
+    enable: true
+  persistence_prob_estimation:
+    enable: true
+    prior_mean: 0.95
+    prior_var: 0.04
+    window_length_ms: 900
+  bayes_factor:
+    num_updates: 1
+    detection:
+      enable: false
+      comparison:
+        - mean: 0.5
+          var: 0.03
+
+trajectory:
+  sliding_window_length_ms: 1000
 
 
 filter:
