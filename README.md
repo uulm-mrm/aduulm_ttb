@@ -9,15 +9,12 @@ If you use this toolbox, please cite [ADUULM-TTB: A Scalable, Generic, and Effic
   booktitle={2025 IEEE International Conference on Multisensor Fusion and Integration for Intelligent Systems (MFI)}, 
   title={ADUULM-TTB: A Scalable, Generic, and Efficient Multi-Sensor Multi-Object Tracking Toolbox}, 
   year={2025},
-  volume={},
-  number={},
   pages={1-8},
-  keywords={Surveillance;Scalability;Benchmark testing;Libraries;Usability;Intelligent systems;Robots},
   doi={10.1109/MFI67357.2025.11259402}
 }
 
 ```
-You can also find a open-access version of the paper at the open-access repository of Ulm University [here](https://oparu.uni-ulm.de/items/ba8132f9-bcdf-4edd-8ee1-45eb8b46bd67).
+You can also find an open-access version of the paper at the open-access repository of Ulm University [here](https://oparu.uni-ulm.de/items/ba8132f9-bcdf-4edd-8ee1-45eb8b46bd67).
 
 
 The toolbox is the basis of the following publications:
@@ -35,7 +32,7 @@ Within the toolbox, the filters of the following publications are implemented:
 * [The Fast Product Multi-Sensor Labeled Multi-Bernoulli Filter](https://ieeexplore.ieee.org/document/10224189)
 * [An Efficient Implementation of the Fast Product Multi-Sensor Labeled Multi-Bernoulli Filter](https://ieeexplore.ieee.org/document/10705774)
 * [The Labeled Multi-Bernoulli Filter](https://ieeexplore.ieee.org/document/6814305)
-* [A fast implementation of the Labeled Multi-Bernoulli filter using gibbs sampling](https://ieeexplore.ieee.org/document/7995809)
+* [A fast implementation of the Labeled Multi-Bernoulli filter using Gibbs sampling](https://ieeexplore.ieee.org/document/7995809)
 * [A Fast Labeled Multi-Bernoulli Filter Using Belief Propagation](https://ieeexplore.ieee.org/document/8836103)
 * [Labeled random finite sets and multi-object conjugate priors](https://ieeexplore.ieee.org/document/6507656)
 * [An Efficient Implementation of the Generalized Labeled Multi-Bernoulli Filter](https://ieeexplore.ieee.org/document/7790845)
@@ -44,9 +41,9 @@ Within the toolbox, the filters of the following publications are implemented:
 * [Efficient approximations of the multi-sensor labelled multi-Bernoulli filter](https://www.sciencedirect.com/science/article/pii/S0165168422001736)
 
 Furthermore, the following filters are implemented:
-* [GNN](include/tracking_lib/Trackers/GNN_Tracker.h): Multi-instances Kalman Filter like mulit-object tracker with global-nearest neighbor association.
+* [GNN](include/tracking_lib/Trackers/GNN_Tracker.h): Multi-instance Kalman Filter like multi-object tracker with global-nearest neighbor association.
 * [NO](include/tracking_lib/Trackers/NO_Tracker.h): Just forwards all measurements as tracks
-* [Id-Tracker](include/tracking_lib/Trackers/Id_Tracker.h): For tracking of measurements with unique ids, e.g., for aruco markers
+* [Id-Tracker](include/tracking_lib/Trackers/Id_Tracker.h): For tracking of measurements with unique IDs, e.g., for ArUco markers
 
 The top-level interface of the library is Python-binded with [nanobind](https://github.com/wjakob/nanobind).
 All bindings are specified in [PythonBindings.cpp](src/Bindings/PythonBindings.cpp).
@@ -60,14 +57,14 @@ Thanks to
 * [imgui](https://github.com/ocornut/imgui) and [implot](https://github.com/epezent/implot): Hassle-free gui libraries for C++.
 * [tracy](https://github.com/wolfpld/tracy): Runtime measurement on steroids
 * [nanobind](https://github.com/wjakob/nanobind): Python bindings
-* [hpx](https://github.com/TheHPXProject/hpx): Powers our multithreaded executions. Great at handling many small parallel tasks. Bit of a pain point in combination with python bindings and imgui.
+* [hpx](https://github.com/TheHPXProject/hpx): Powers our multithreaded executions. Great at handling many small parallel tasks. Bit of a pain point in combination with Python bindings and ImGui.
 * [type_safe](https://github.com/foonathan/type_safe): Strong types. Used for all kinds of different IDs ...
 * and many more!
 
 
 # Installation with the provided Docker Container
 
-For installation, we provide a kind-of minimal Dockerfile:
+For installation, we provide a kind of minimal Dockerfile:
 
 0. Install [Docker](https://docs.docker.com/engine/install/)
 
@@ -79,7 +76,7 @@ For installation, we provide a kind-of minimal Dockerfile:
     git submodule update --init --recursive
     ```
 
-2. Build the docker image:
+2. Build the Docker image:
     ```
     cd {WORKSPACE}/aduulm_ttb/docker
     docker build . --tag tracking:0
@@ -137,8 +134,8 @@ The whole library is cluttered with assertions that check for almost any conditi
 
 ## Configuration
 
-The behaiviour is entirely controlled by a single configuration yaml file.
-Example for these are found in the [tutorials](tutorials) folder.
+The behaviour is entirely controlled by a single configuration yaml file.
+Examples of these are found in the [tutorials](tutorials) folder.
 To read in this yaml, the library [figcone](https://github.com/kamchatka-volcano/figcone) is used.
 The corresponding C++ parameter data structure is defined in [Params.h](include/tracking_lib/TTBTypes/Params.h).
 The yaml file must exactly match the definition there, otherwise a hard error is raised.
@@ -146,7 +143,7 @@ If you can find a invalid configuration which does not result in a meaningful er
 
 ## GUI
 
-The toolbox includes a GUI for vizualisation.
+The toolbox includes a GUI for visualization.
 To enable the gui, set `show_gui: true` in the config file.
 When using the gui in combination with python, it is recommended to wait for the gui to close.
 In `run_simulation.py`, there is the `--wait` flag for this.
@@ -194,10 +191,10 @@ The toolbox uses a hierarchical structure.
 
 ![images/TTB_structural_overview.png](images/TTB_structural_overview.png)
 
-As user, you typically interact with the [TTBManager](include/tracking_lib/TTBManager/TTBManager.h).
-This object provide the high-level interface and methods to add measurements from data sources and trigger a tracking cycle.
+As a user, you typically interact with the [TTBManager](include/tracking_lib/TTBManager/TTBManager.h).
+This object provides the high-level interface and methods to add measurements from data sources and trigger a tracking cycle.
 
-As principal design guideline, a component should only interact with its direct subcomponents.
+As a principal design guideline, a component should only interact with its direct subcomponents.
 For example, the [Tracker](include/tracking_lib/Trackers/Tracker.h) should only interact with a `M̀ulti-Object State`,e.g., a [LMBDistribution](include/tracking_lib/MultiObjectStateDistributions/LMBDistribution.h) and never with an individual [State](include/tracking_lib/States/State.h).
 This ensures a more or less strict, loose coupling between elements which should be exchangeable.
 For example, `Tracker` level code should abstract the concrete Distribution representation, e.g., it should work the same for a Gaussian or Particle distribution.
@@ -214,8 +211,8 @@ Distribution.h
 Note that this interface is NOT general enough to encode all kind of (representations of) distributions.
 For example, if you want to implement a particle representation of a distribution for a Particle Filter you may have to
 adapt the interface.
-Currently, only a (multivariate) Gaussian and mixture distribution of arbitrary components are implemented.
-Note, that a distribution on its own has no semantic connection to physical entities like position or velocity.
+Currently, only a (multivariate) Gaussian and mixture distributions of arbitrary components are implemented.
+Note that a distribution on its own has no semantic connection to physical entities like position or velocity.
 
 The distributions have no dependencies to any other part of the toolbox.
 
@@ -256,7 +253,7 @@ The following state models are implemented
 * [CTRA](include/tracking_lib/StateModels/CTRAStateModel.h): Constant turn rate and acceleration
 * [ISCATR](include/tracking_lib/StateModels/ISCATRStateModel.h): Independent split constant turn and turn rate ([Toward Intelligent Automated Driving Functionalities for Multipurpose Vehicles in UNICARagil](https://ieeexplore.ieee.org/document/11643228))
 
-Every state model supports also the extension of its state components by length, width, and height.
+Every state model also supports the extension of its state components by length, width, and height.
 
 ### Measurement Model
 
